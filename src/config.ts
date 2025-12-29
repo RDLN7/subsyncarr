@@ -34,9 +34,12 @@ export function getScanConfig(): ScanConfig {
     validIncludePaths.push('/scan_dir');
   }
 
+  const overwriteOriginal = process.env.OVERWRITE_ORIGINAL === 'true';
+
   console.log(`${new Date().toLocaleString()} Scan configuration:`, {
     includePaths: validIncludePaths,
     excludePaths: validExcludePaths,
+    overwriteOriginal,
   });
 
   return {

@@ -1,5 +1,5 @@
 # Use Node.js LTS (Long Term Support) as base image
-FROM node:20-bullseye
+FROM node:20-bookworm
 
 # Create app user and group with configurable UID/GID
 ENV PUID=1000
@@ -14,13 +14,16 @@ RUN groupmod -g ${PGID} node && \
     chown -R node:node /home/node
 RUN apt-get clean
 
-# Install system dependencies including ffmpeg, Python, and cron
+# Install system dependencies including Python and cron (ffmpeg is copied from static image)
+COPY --from=mwader/static-ffmpeg:latest /ffmpeg /usr/local/bin/
+COPY --from=mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/
+
 RUN apt-get update && apt-get install -y \
-    ffmpeg \
     python3 \
     python3-pip \
     python3-venv \
     cron \
+    pipx \
     && rm -rf /var/lib/apt/lists/*
 
 USER node
@@ -29,6 +32,13 @@ WORKDIR /app
 
 # Copy package.json and package-lock.json (if available)
 COPY --chown=node:node package*.json ./
+
+# Add pipx to PATH
+ENV PATH="/home/node/.local/bin:$PATH"
+
+# Install ffsubsync and autosubsync using pipx
+RUN pipx install ffsubsync \
+    && pipx install autosubsync
 
 # Install Node.js dependencies while skipping husky installation
 ENV HUSKY=0
@@ -46,30 +56,9 @@ RUN npm run build
 # Set default cron schedule (if not provided by environment variable)
 ENV CRON_SCHEDULE="0 0 * * *"
 
-# Install pipx
-RUN python3 -m pip install --user pipx \
-    && python3 -m pipx ensurepath
-
-# Add pipx to PATH
-ENV PATH="/home/node/.local/bin:$PATH"
-
-# Install ffsubsync and autosubsync using pipx
-RUN pipx install ffsubsync \
-    && pipx install autosubsync
-
-
 # Create startup script with proper permissions
-RUN echo '#!/bin/bash\n\
-# Add cron job to user crontab\n\
-crontab - <<EOF\n\
-${CRON_SCHEDULE} cd /app && /usr/local/bin/node /app/dist/index.js >> /var/log/subsyncarr/cron.log 2>&1\n\
-EOF\n\
-\n\
-# Run the initial instance of the app\n\
-node dist/index.js\n\
-mkdir -p /app/logs/\n\
-touch /app/logs/app.log\n\
-tail -f /app/logs/app.log' > /app/startup.sh
+# Copy startup script
+COPY --chown=node:node startup.sh /app/startup.sh
 
 # Make startup script executable
 RUN chmod +x /app/startup.sh

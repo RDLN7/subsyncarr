@@ -13,7 +13,7 @@ export async function findAllSrtFiles(config: ScanConfig): Promise<string[]> {
 
     const entries = await readdir(directory, { withFileTypes: true });
 
-    for (const entry of entries) {
+    const tasks = entries.map(async (entry) => {
       const fullPath = join(directory, entry.name);
 
       if (entry.isDirectory()) {
@@ -27,7 +27,9 @@ export async function findAllSrtFiles(config: ScanConfig): Promise<string[]> {
       ) {
         files.push(fullPath);
       }
-    }
+    });
+
+    await Promise.all(tasks);
   }
 
   // Scan all included paths
