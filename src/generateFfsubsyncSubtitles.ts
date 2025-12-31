@@ -26,19 +26,30 @@ export async function generateFfsubsyncSubtitles(srtPath: string, videoPath: str
     await execPromise(command);
 
     if (overwrite) {
-      await rename(outputPath, srtPath);
-      return {
-        success: true,
-        message: `Successfully processed and overwritten: ${srtPath}`,
-      };
+      if (existsSync(outputPath)) {
+        await rename(outputPath, srtPath);
+        return {
+          success: true,
+          message: `Successfully processed and overwritten: ${srtPath}`,
+        };
+      } else {
+        return {
+          success: false,
+          message: `Error: Output file ${outputPath} was not created by ffsubsync`,
+        };
+      }
     }
 
     return {
       success: true,
       message: `Successfully processed: ${outputPath}`,
     };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  } catch (error: any) {
+    const errorMessage = error.message || 'Unknown error';
+    const stderr = error.stderr ? `\nStderr: ${error.stderr}` : '';
+    const stdout = error.stdout ? `\nStdout: ${error.stdout}` : '';
+    console.error(`${new Date().toLocaleString()} Failed to run ffsubsync:${stdout}${stderr}`);
+    
     return {
       success: false,
       message: `Error processing ${outputPath}: ${errorMessage}`,

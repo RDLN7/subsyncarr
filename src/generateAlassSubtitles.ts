@@ -26,11 +26,18 @@ export async function generateAlassSubtitles(srtPath: string, videoPath: string)
     await execPromise(command);
 
     if (overwrite) {
-      await rename(outputPath, srtPath);
-      return {
-        success: true,
-        message: `Successfully processed and overwritten: ${srtPath}`,
-      };
+      if (existsSync(outputPath)) {
+        await rename(outputPath, srtPath);
+        return {
+          success: true,
+          message: `Successfully processed and overwritten: ${srtPath}`,
+        };
+      } else {
+        return {
+          success: false,
+          message: `Error: Output file ${outputPath} was not created by alass`,
+        };
+      }
     }
 
     return {

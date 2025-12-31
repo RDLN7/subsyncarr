@@ -1,5 +1,5 @@
 # Use Node.js LTS (Long Term Support) as base image
-FROM node:20-bookworm
+FROM node:20-bookworm-slim
 
 # Create app user and group with configurable UID/GID
 ENV PUID=1000
@@ -16,29 +16,36 @@ RUN apt-get clean
 
 # Install system dependencies including Python and cron (ffmpeg is copied from static image)
 COPY --from=mwader/static-ffmpeg:latest /ffmpeg /usr/local/bin/
-COPY --from=mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/
 
-RUN apt-get update && apt-get install -y \
+# Install system dependencies, create venv, install ffsubsync, and cleanup in one layer to minimize size
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
-    python3-pip \
     python3-venv \
     cron \
-    pipx \
-    && rm -rf /var/lib/apt/lists/*
+    gosu \
+    build-essential \
+    python3-dev \
+    && python3 -m venv /app/venv \
+    && /app/venv/bin/pip install --no-cache-dir ffsubsync \
+    && find /app/venv -name "tests" -type d -exec rm -rf {} + \
+    && find /app/venv -name "__pycache__" -type d -exec rm -rf {} + \
+    && apt-get purge -y build-essential python3-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && chown -R node:node /app
 
-USER node
+ENV VIRTUAL_ENV=/app/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
 # Set working directory
 WORKDIR /app
 
 # Copy package.json and package-lock.json (if available)
 COPY --chown=node:node package*.json ./
 
-# Add pipx to PATH
-ENV PATH="/home/node/.local/bin:$PATH"
-
-# Install ffsubsync and autosubsync using pipx
-RUN pipx install ffsubsync \
-    && pipx install autosubsync
+# Install Node.js dependencies while skipping husky installation
+ENV HUSKY=0
+RUN npm install --ignore-scripts
 
 # Install Node.js dependencies while skipping husky installation
 ENV HUSKY=0
