@@ -9,13 +9,13 @@ export async function generateAlassSubtitles(srtPath: string, videoPath: string)
   const outputPath = join(directory, `${srtBaseName}.alass.srt`);
   const overwrite = process.env.OVERWRITE_ORIGINAL === 'true';
 
-  // Check if synced subtitle already exists
   if (!overwrite) {
     const exists = existsSync(outputPath);
     if (exists) {
       return {
         success: true,
         message: `Skipping ${outputPath} - already processed`,
+        skipped: true,
       };
     }
   }
@@ -23,7 +23,7 @@ export async function generateAlassSubtitles(srtPath: string, videoPath: string)
   try {
     const command = `alass "${videoPath}" "${srtPath}" "${outputPath}"`;
     console.log(`${new Date().toLocaleString()} Processing: ${command}`);
-    await execPromise(command);
+    const { stdout, stderr } = await execPromise(command);
 
     if (overwrite) {
       if (existsSync(outputPath)) {
@@ -31,24 +31,47 @@ export async function generateAlassSubtitles(srtPath: string, videoPath: string)
         return {
           success: true,
           message: `Successfully processed and overwritten: ${srtPath}`,
-        };
-      } else {
-        return {
-          success: false,
-          message: `Error: Output file ${outputPath} was not created by alass`,
+          stdout: stdout || undefined,
+          stderr: stderr || undefined,
         };
       }
+
+      return {
+        success: false,
+        message: `Error: Output file ${outputPath} was not created by alass`,
+        stdout: stdout || undefined,
+        stderr: stderr || undefined,
+      };
     }
 
     return {
       success: true,
       message: `Successfully processed: ${outputPath}`,
+      stdout: stdout || undefined,
+      stderr: stderr || undefined,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isTimeout = errorMessage.includes('SIGTERM') || errorMessage.includes('timed out');
+
+    const execError = error as { stdout?: string; stderr?: string };
+    const stdout = execError.stdout || '';
+    const stderr = execError.stderr || '';
+
+    if (isTimeout) {
+      return {
+        success: false,
+        message: `Timeout: ${outputPath} took longer than allowed timeout`,
+        stdout: stdout || undefined,
+        stderr: stderr || undefined,
+      };
+    }
+
     return {
       success: false,
       message: `Error processing ${outputPath}: ${errorMessage}`,
+      stdout: stdout || undefined,
+      stderr: stderr || undefined,
     };
   }
 }

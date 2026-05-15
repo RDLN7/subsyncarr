@@ -1,74 +1,83 @@
-# Use Node.js LTS (Long Term Support) as base image
-FROM node:20-bookworm-slim
+# === Build stage ===
+FROM node:22-bookworm AS builder
 
-# Create app user and group with configurable UID/GID
-ENV PUID=1000
-ENV PGID=1000
-
-RUN mkdir -p /app
-RUN chown node:node /app
-
-# Modify existing node user instead of creating new one
-RUN groupmod -g ${PGID} node && \
-    usermod -u ${PUID} -g ${PGID} node && \
-    chown -R node:node /home/node
-RUN apt-get clean
-
-# Install system dependencies including Python and cron (ffmpeg is copied from static image)
-COPY --from=mwader/static-ffmpeg:latest /ffmpeg /usr/local/bin/
-
-# Install system dependencies, create venv, install ffsubsync, and cleanup in one layer to minimize size
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-venv \
-    cron \
-    gosu \
-    build-essential \
-    python3-dev \
-    && python3 -m venv /app/venv \
-    && /app/venv/bin/pip install --no-cache-dir ffsubsync \
-    && find /app/venv -name "tests" -type d -exec rm -rf {} + \
-    && find /app/venv -name "__pycache__" -type d -exec rm -rf {} + \
-    && apt-get purge -y build-essential python3-dev \
-    && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* \
-    && chown -R node:node /app
-
-ENV VIRTUAL_ENV=/app/venv
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-
-# Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json (if available)
-COPY --chown=node:node package*.json ./
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    pipx \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js dependencies while skipping husky installation
+# Install Node.js dependencies
+COPY package*.json ./
 ENV HUSKY=0
-RUN npm install --ignore-scripts
+RUN npm install --ignore-scripts && npm rebuild better-sqlite3
 
-# Install Node.js dependencies while skipping husky installation
-ENV HUSKY=0
-RUN npm install --ignore-scripts
-
-# Copy the rest of your application
-COPY --chown=node:node . .
-RUN mkdir -p /home/node/.local/bin/
-RUN cp bin/* /home/node/.local/bin/
-
-# Build TypeScript
+# Copy source and build
+COPY . .
+RUN mkdir -p /home/node/.local/bin/ && cp bin/* /home/node/.local/bin/ && chown -R node:node /home/node/.local
 RUN npm run build
 
-# Create startup script
-# Set default cron schedule (if not provided by environment variable)
+# Install Python tools as node user
+USER node
+ENV PATH="/home/node/.local/bin:$PATH"
+RUN pipx install ffsubsync \
+    && pipx inject ffsubsync 'setuptools<82' \
+    && pipx install autosubsync \
+    && pipx inject autosubsync 'setuptools<82' \
+    && find /home/node/.local/share/pipx -type f -name "*.pyc" -delete 2>/dev/null || true \
+    && find /home/node/.local/share/pipx -type d -name "__pycache__" -delete 2>/dev/null || true
+
+# === Runtime stage ===
+FROM node:22-slim
+
+ENV PUID=1000
+ENV PGID=1000
 ENV CRON_SCHEDULE="0 0 * * *"
+ENV NODE_OPTIONS="--max-old-space-size=512"
+ENV PATH="/home/node/.local/bin:$PATH"
 
-# Create startup script with proper permissions
-# Copy startup script
-COPY --chown=node:node startup.sh /app/startup.sh
+# Install runtime dependencies and gosu
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    python3 \
+    cron \
+    curl \
+    ca-certificates \
+    && dpkgArch="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://github.com/tianon/gosu/releases/download/1.17/gosu-$dpkgArch" -o /usr/local/bin/gosu \
+    && chmod +x /usr/local/bin/gosu \
+    && apt-get purge -y curl \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
-# Make startup script executable
-RUN chmod +x /app/startup.sh
+WORKDIR /app
 
-# Use startup script as entrypoint
-CMD ["/app/startup.sh"]
+# Copy built app from builder
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package.json ./package.json
+
+# Copy alass binary
+COPY --from=builder --chown=node:node /home/node/.local/bin/alass /home/node/.local/bin/alass
+
+# Copy Python tools from builder
+COPY --from=builder --chown=node:node /home/node/.local /home/node/.local
+
+# Create data directory
+RUN mkdir -p /app/data && chown node:node /app/data
+
+# Copy entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 3000
+
+USER root
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["node", "--optimize-for-size", "dist/index-server.js"]

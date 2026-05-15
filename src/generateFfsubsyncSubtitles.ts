@@ -9,13 +9,13 @@ export async function generateFfsubsyncSubtitles(srtPath: string, videoPath: str
   const outputPath = join(directory, `${srtBaseName}.ffsubsync.srt`);
   const overwrite = process.env.OVERWRITE_ORIGINAL === 'true';
 
-  // Check if synced subtitle already exists (only if not overwriting)
   if (!overwrite) {
     const exists = existsSync(outputPath);
     if (exists) {
       return {
         success: true,
         message: `Skipping ${outputPath} - already processed`,
+        skipped: true,
       };
     }
   }
@@ -23,7 +23,7 @@ export async function generateFfsubsyncSubtitles(srtPath: string, videoPath: str
   try {
     const command = `ffsubsync "${videoPath}" -i "${srtPath}" -o "${outputPath}"`;
     console.log(`${new Date().toLocaleString()} Processing: ${command}`);
-    await execPromise(command);
+    const { stdout, stderr } = await execPromise(command);
 
     if (overwrite) {
       if (existsSync(outputPath)) {
@@ -31,28 +31,47 @@ export async function generateFfsubsyncSubtitles(srtPath: string, videoPath: str
         return {
           success: true,
           message: `Successfully processed and overwritten: ${srtPath}`,
-        };
-      } else {
-        return {
-          success: false,
-          message: `Error: Output file ${outputPath} was not created by ffsubsync`,
+          stdout: stdout || undefined,
+          stderr: stderr || undefined,
         };
       }
+
+      return {
+        success: false,
+        message: `Error: Output file ${outputPath} was not created by ffsubsync`,
+        stdout: stdout || undefined,
+        stderr: stderr || undefined,
+      };
     }
 
     return {
       success: true,
       message: `Successfully processed: ${outputPath}`,
+      stdout: stdout || undefined,
+      stderr: stderr || undefined,
     };
-  } catch (error: any) {
-    const errorMessage = error.message || 'Unknown error';
-    const stderr = error.stderr ? `\nStderr: ${error.stderr}` : '';
-    const stdout = error.stdout ? `\nStdout: ${error.stdout}` : '';
-    console.error(`${new Date().toLocaleString()} Failed to run ffsubsync:${stdout}${stderr}`);
-    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const isTimeout = errorMessage.includes('SIGTERM') || errorMessage.includes('timed out');
+
+    const execError = error as { stdout?: string; stderr?: string };
+    const stdout = execError.stdout || '';
+    const stderr = execError.stderr || '';
+
+    if (isTimeout) {
+      return {
+        success: false,
+        message: `Timeout: ${outputPath} took longer than allowed timeout`,
+        stdout: stdout || undefined,
+        stderr: stderr || undefined,
+      };
+    }
+
     return {
       success: false,
       message: `Error processing ${outputPath}: ${errorMessage}`,
+      stdout: stdout || undefined,
+      stderr: stderr || undefined,
     };
   }
 }
