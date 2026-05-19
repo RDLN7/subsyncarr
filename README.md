@@ -32,7 +32,6 @@ services:
   subsyncarr:
     image: mrorbitman/subsyncarr:latest
     container_name: subsyncarr
-    user: '1000:10'
     ports:
       - '3000:3000' # Web UI
     volumes:
@@ -81,7 +80,6 @@ Open your browser to [http://localhost:3000](http://localhost:3000) or whatever 
 ```bash
 docker run -d \
   --name subsyncarr \
-  --user 1000:10 \
   -p 3000:3000 \
   -v /path/to/movies:/movies \
   -v /path/to/tv:/tv \
@@ -103,6 +101,7 @@ docker run -d \
 | --------------------------- | ----------------------------- | -------------------------------------------------------------------------------- |
 | `SCAN_PATHS`                | `/scan_dir`                   | Comma-separated directories to scan for SRT files (must be mounted as volumes)   |
 | `EXCLUDE_PATHS`             | _(none)_                      | Comma-separated directories to exclude from scanning                             |
+| `SYNC_LANGUAGES`            | _(none)_                      | Comma-separated language codes to sync (e.g., `en,de`). Only syncs subtitles with matching language tags in the filename (e.g., `movie.en.srt`). If not set, all subtitles are synced. |
 | `CRON_SCHEDULE`             | `0 0 * * *`                   | Cron expression for sync schedule (daily at midnight), or `disabled` to turn off |
 | `MAX_CONCURRENT_SYNC_TASKS` | `1`                           | Number of subtitle files to process in parallel (higher = faster but more CPU)   |
 | `INCLUDE_ENGINES`           | `ffsubsync,autosubsync,alass` | Which sync engines to use (comma-separated)                                      |
@@ -259,6 +258,8 @@ id -g  # Get your group ID
 ```
 
 Then update your docker-compose.yaml with these values.
+
+> **Note:** Do not use the `user:` directive in docker-compose or `--user` in docker run. The container must start as root so the entrypoint can configure file permissions using `PUID`/`PGID`, then drops to the unprivileged user automatically via `gosu`.
 
 ### Memory Issues
 
