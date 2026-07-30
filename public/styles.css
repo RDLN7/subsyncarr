@@ -162,17 +162,17 @@
   --color-success: #059669;
   --color-success-bg: rgba(16, 185, 129, 0.12);
   --color-success-border: rgba(16, 185, 129, 0.35);
-  --dot-glow-success: 0 0 0 2px rgba(16, 185, 129, 0.25), 0 0 6px rgba(16, 185, 129, 0.3);
+  --dot-glow-success: 0 0 5px rgba(16, 185, 129, 0.4);
 
   --color-warning: #d97706;
   --color-warning-bg: rgba(245, 158, 11, 0.12);
   --color-warning-border: rgba(245, 158, 11, 0.35);
-  --dot-glow-warning: 0 0 0 2px rgba(245, 158, 11, 0.25), 0 0 6px rgba(245, 158, 11, 0.3);
+  --dot-glow-warning: 0 0 5px rgba(245, 158, 11, 0.4);
 
   --color-danger: #dc2626;
   --color-danger-bg: rgba(239, 68, 68, 0.12);
   --color-danger-border: rgba(239, 68, 68, 0.35);
-  --dot-glow-danger: 0 0 0 2px rgba(239, 68, 68, 0.25), 0 0 6px rgba(239, 68, 68, 0.3);
+  --dot-glow-danger: 0 0 5px rgba(239, 68, 68, 0.4);
 
   --color-info: #0284c7;
   --color-info-bg: rgba(2, 132, 199, 0.12);
@@ -594,14 +594,14 @@ body {
   width: 48px;
   height: 48px;
   border-radius: var(--radius-md);
-  background: rgba(0, 240, 255, 0.08);
-  border: 1px solid rgba(0, 240, 255, 0.2);
+  background: var(--accent-soft);
+  border: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--accent-primary);
   flex-shrink: 0;
-  box-shadow: inset 0 0 12px rgba(0, 240, 255, 0.1);
+  box-shadow: var(--shadow-sm);
   transition: all var(--transition-fast);
 }
 
