@@ -10,7 +10,7 @@
 
 **Automated Speech-to-Text Subtitle Synchronization & AI Translation for Arr / Plex / Jellyfin / Emby / Synology / Unraid**
 
-[Quick Start](#-quick-start) • [CyberDeck 3.0 UI](#-cyberdeck-3.0-dashboard) • [Configuration](#%EF%B8%8F-configuration) • [AI Translation](#-ai-translation-engine) • [Troubleshooting](#-troubleshooting)
+[Quick Start](#quick-start) • [CyberDeck 3.0 UI](#cyberdeck-ui) • [Configuration](#configuration) • [AI Translation](#ai-translation) • [Troubleshooting](#troubleshooting)
 
 </div>
 
@@ -18,8 +18,9 @@
 
 ## 🌟 Features Overview
 
+<a id="cyberdeck-ui"></a>
 ### 🎛️ CyberDeck 3.0 Dashboard & UI
-* **Sci-Fi Control Center**: Responsive dual-pane UI with dark obsidian obsidian backdrop, neon glassmorphism, and high-contrast light theme modes.
+* **Sci-Fi Control Center**: Responsive dual-pane UI with dark obsidian backdrop, neon glassmorphism, and high-contrast light theme modes.
 * **Live Audio Equalizer Visualizer**: 5-bar animated audio waveform equalizer dancing in real-time during active subtitle synchronization runs.
 * **Embedded Terminal Stream**: View live processing logs directly in the browser with dark hacker terminal styling, autoscroll, line numbers, and 1-click clipboard copy.
 * **Interactive Directory Tree Picker**: Browse your server's filesystem graphically inside the Web UI to target specific folders without typing paths.
@@ -39,6 +40,7 @@
 
 ---
 
+<a id="quick-start"></a>
 ## ⚡ Quick Start
 
 ### Using Docker Compose (Recommended)
@@ -105,6 +107,7 @@ docker run -d \
 
 ---
 
+<a id="configuration"></a>
 ## ⚙️ Configuration Reference
 
 ### Core Application Settings
@@ -125,6 +128,7 @@ docker run -d \
 
 ---
 
+<a id="ai-translation"></a>
 ### 🤖 AI Translation Settings
 
 Add `ai-translate` to `INCLUDE_ENGINES` to enable AI translation:
@@ -177,6 +181,7 @@ Subsyncarr Plus automatically handles standard Plex, Jellyfin, and Arr directory
 
 ---
 
+<a id="troubleshooting"></a>
 ## 🔧 Troubleshooting & Support
 
 ### View Container Logs
