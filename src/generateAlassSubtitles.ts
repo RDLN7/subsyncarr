@@ -62,8 +62,8 @@ export async function generateAlassSubtitles(
         const tempWavPath = join(directory, `${srtBaseName}.ref_audio.wav`);
         console.log(`${new Date().toLocaleString()} Alass direct video processing failed. Extracting WAV audio reference to ${tempWavPath}...`);
         try {
-          const extractAudioCmd = `ffmpeg -y -i "${videoPath}" -vn -ac 1 -ar 16000 -acodec pcm_s16le "${tempWavPath}"`;
-          await execPromise(extractAudioCmd, 120000);
+          const extractAudioCmd = `ffmpeg -y -err_detect ignore_err -i "${videoPath}" -map 0:a? -vn -ac 1 -ar 16000 -acodec pcm_s16le "${tempWavPath}"`;
+          await execPromise(extractAudioCmd, 600000);
 
           if (existsSync(tempWavPath)) {
             const wavAlassCmd = `alass "${tempWavPath}" "${srtPath}" "${outputPath}"`;
