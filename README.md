@@ -1,30 +1,49 @@
-# Subsyncarr
+# Subsyncarr Plus (CyberDeck 3.0)
 
-An automated subtitle synchronization tool that runs as a Docker container. It continuously monitors your media directories for video files with out-of-sync subtitles and automatically synchronizes them using three sync engines (ffsubsync, autosubsync, and alass).
+<div align="center">
 
-**Docker Hub:** [mrorbitman/subsyncarr](https://hub.docker.com/r/mrorbitman/subsyncarr)
+![Subsyncarr Banner](https://img.shields.io/badge/Subsyncarr-CyberDeck%203.0-00f0ff?style=for-the-badge&logo=docker&logoColor=white)
+![Node Version](https://img.shields.io/badge/Node.js-v24%2B-00ff9d?style=for-the-badge&logo=node.js&logoColor=white)
+![Architecture](https://img.shields.io/badge/Platform-linux%2Famd64-7000ff?style=for-the-badge)
+![License](https://img.shields.io/github/license/RDLN7/subsyncarr?color=ff0055&style=for-the-badge)
+![Docker Pulls](https://img.shields.io/docker/pulls/mrorbitman/subsyncarr?color=ffab00&style=for-the-badge)
 
-## Features
+**Automated Speech-to-Text Subtitle Synchronization & AI Translation for Arr / Plex / Jellyfin / Emby / Synology / Unraid**
 
-### Core Functionality
+[Quick Start](#-quick-start) • [CyberDeck 3.0 UI](#-cyberdeck-3.0-dashboard) • [Configuration](#%EF%B8%8F-configuration) • [AI Translation](#-ai-translation-engine) • [Troubleshooting](#-troubleshooting)
 
-- **Automated Subtitle Synchronization** - Syncs subtitles for your entire media library or specific folders.
-- **Multiple Sync Engines** - Uses ffsubsync, autosubsync, and alass for maximum compatibility and success rate
-- **Scheduled Processing** - Runs on a configurable cron schedule (default: daily at midnight) and on container startup
-- **Parallel Processing** - Configure concurrent subtitle processing for faster library syncing
-- **Skip Already Synced Files** - Avoids re-processing files that already have synchronized subtitles or where an engine repeatedly fails.
-- **Processing History** - View past runs with detailed statistics, results, and logs
-- **Configuration Dashboard** - View current settings, monitored paths, and schedule status
-- **Configurable Timeouts** - Set per-engine timeout limits to prevent hung processes
-- **Log Management** - Configurable retention policies with automatic trimming and deletion
-- **Non Destructive** - Creates new files for each engine so no original files are altered. Allows easy switching between engines while watching content.
-- **Optional AI Translation** - Translate external SRT subtitles through any OpenAI-compatible API and keep the generated Traditional Chinese sidecar beside the source.
+</div>
 
-## Quick Start
+---
+
+## 🌟 Features Overview
+
+### 🎛️ CyberDeck 3.0 Dashboard & UI
+* **Sci-Fi Control Center**: Responsive dual-pane UI with dark obsidian obsidian backdrop, neon glassmorphism, and high-contrast light theme modes.
+* **Live Audio Equalizer Visualizer**: 5-bar animated audio waveform equalizer dancing in real-time during active subtitle synchronization runs.
+* **Embedded Terminal Stream**: View live processing logs directly in the browser with dark hacker terminal styling, autoscroll, line numbers, and 1-click clipboard copy.
+* **Interactive Directory Tree Picker**: Browse your server's filesystem graphically inside the Web UI to target specific folders without typing paths.
+* **Global Search & Outcomes Filter**: Instant fuzzy search across processed media files, subtitle language tags, and sync outcomes (`SYNCED`, `TRANSLATED`, `NO_MATCH`, `FAILED`).
+
+### 🎙️ Multi-Engine Speech-to-Text Synchronization
+* **Triple Sync Engines**: Combines `FFsubsync`, `Alass`, and `Autosubsync` for maximum audio-to-subtitle alignment accuracy.
+* **Automatic WAV Audio Fallback**: Intelligent fallback extraction converts complex 4K Remux / Hybrid MKVs into 16kHz mono `.wav` audio references on the fly, preventing child-process crashes on 50GB+ video files.
+* **Embedded Subtitle Extraction**: Automatically extracts embedded English/Chinese reference subtitles from MKV containers when external reference files are missing.
+* **Non-Destructive Processing**: Generates sidecar SRT files (e.g., `Movie.alass.srt`, `Movie.ffsubsync.srt`) so original subtitles remain intact. Optional `OVERWRITE_ORIGINAL=true` mode supported.
+* **Auto-Skip Protection**: Intelligently skips files after 3 consecutive failures to conserve CPU resources. Reset skip states with 1 click in the UI.
+
+### 🤖 AI Subtitle Translation Engine
+* **OpenAI API Compatible**: Works out of the box with OpenAI (`gpt-4o`, `gpt-4o-mini`), Claude, DeepSeek, Grok, Ollama, or local LM Studio / vLLM endpoints.
+* **Portable Sidecar Output**: Automatically translates external subtitles and generates standard BCP-47 sidecar files (e.g., `Movie.AI.zh-TW.srt`).
+* **Telegram Bot Notifications**: Receives instant rich alert notifications on Telegram after each successful synchronization or AI translation run.
+
+---
+
+## ⚡ Quick Start
 
 ### Using Docker Compose (Recommended)
 
-1. **Create a docker-compose.yaml file** with the following content:
+Create a `docker-compose.yml` file:
 
 ```yaml
 name: subsyncarr
@@ -36,44 +55,35 @@ services:
     ports:
       - '3000:3000' # Web UI
     volumes:
-      # Mount your media directories
       - /path/to/movies:/movies
       - /path/to/tv:/tv
-      - /path/to/anime:/anime
-      - ./data:/app/data # Persist database across restarts
+      - ./data:/app/data # Persist SQLite database & logs
     restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 768M # Hard limit
+          memory: 768M
         reservations:
-          memory: 128M # Minimum guaranteed memory
+          memory: 128M
     environment:
-      - TZ=Etc/UTC # Replace with your own timezone
+      - TZ=Etc/UTC
       - PUID=1000
-      - PGID=10
-      - CRON_SCHEDULE=0 0 * * * # Runs every day at midnight by default
-      - SCAN_PATHS=/movies,/tv # Comma-separated paths to scan
-      - EXCLUDE_PATHS=/movies/temp,/tv/downloads # Optional: exclude directories
-      - MAX_CONCURRENT_SYNC_TASKS=1 # Number of parallel processing tasks
-      - INCLUDE_ENGINES=ffsubsync,autosubsync,alass # Engines to use
+      - PGID=1000
+      - CRON_SCHEDULE=0 0 * * * # Daily at midnight
+      - SCAN_PATHS=/movies,/tv
+      - INCLUDE_ENGINES=ffsubsync,autosubsync,alass
+      - MAX_CONCURRENT_SYNC_TASKS=1
 ```
 
-2. **Update the configuration:**
-   - Replace `/path/to/movies`, `/path/to/tv`, etc. with your actual media paths
-   - Update `TZ` to your timezone (e.g., `America/New_York`, `Europe/London`)
-   - Update `PUID` and `PGID` to match your user (run `id` command to find these)
-   - Adjust `SCAN_PATHS` to match your mounted volumes
-
-3. **Start the container:**
+Start the container:
 
 ```bash
 docker compose up -d
 ```
 
-4. **Access the Web UI:**
+Open your browser to **`http://localhost:3000`** (or `http://<your-server-ip>:3000`).
 
-Open your browser to [http://localhost:3000](http://localhost:3000) or whatever port you've mapped to inside docker.
+---
 
 ### Using Docker Run
 
@@ -84,248 +94,108 @@ docker run -d \
   -v /path/to/movies:/movies \
   -v /path/to/tv:/tv \
   -v ./data:/app/data \
-  -e TZ=Etc/UTC \
+  -e TZ=America/New_York \
   -e PUID=1000 \
-  -e PGID=10 \
+  -e PGID=1000 \
   -e CRON_SCHEDULE="0 0 * * *" \
   -e SCAN_PATHS=/movies,/tv \
-  -e MAX_CONCURRENT_SYNC_TASKS=1 \
+  -e INCLUDE_ENGINES=ffsubsync,autosubsync,alass \
   mrorbitman/subsyncarr:latest
 ```
 
-## Configuration
+---
 
-### Core Configuration
+## ⚙️ Configuration Reference
 
-| Variable                    | Default                       | Description                                                                                                                                                                            |
-| --------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SCAN_PATHS`                | `/scan_dir`                   | Comma-separated directories to scan for SRT files (must be mounted as volumes)                                                                                                         |
-| `EXCLUDE_PATHS`             | _(none)_                      | Comma-separated directories to exclude from scanning                                                                                                                                   |
-| `SYNC_LANGUAGES`            | _(none)_                      | Comma-separated language codes to sync (e.g., `en,de`). Only syncs subtitles with matching language tags in the filename (e.g., `movie.en.srt`). If not set, all subtitles are synced. |
-| `CRON_SCHEDULE`             | `0 0 * * *`                   | Cron expression for sync schedule (daily at midnight), or `disabled` to turn off                                                                                                       |
-| `MAX_CONCURRENT_SYNC_TASKS` | `1`                           | Number of subtitle files to process in parallel (higher = faster but more CPU)                                                                                                         |
-| `INCLUDE_ENGINES`           | `ffsubsync,autosubsync,alass` | Which sync engines to use (comma-separated)                                                                                                                                            |
-| `SYNC_TIMEOUT`              | _(none)_                      | Timeout in seconds per sync operation (overrides SYNC_ENGINE_TIMEOUT_MS)                                                                                                               |
-| `SYNC_ENGINE_TIMEOUT_MS`    | `1800000`                     | Timeout for each sync engine in milliseconds (30 min default)                                                                                                                          |
-| `NODE_OPTIONS`              | `--max-old-space-size=512`    | Node.js options, used here to set memory limit (in MB)                                                                                                                                 |
-| `WEB_PORT`                  | `3000`                        | Port for the web UI                                                                                                                                                                    |
-| `WEB_HOST`                  | `127.0.0.1`                   | Host to bind the web UI to (`0.0.0.0` to expose externally)                                                                                                                            |
-| `TZ`                        | _(system)_                    | Timezone for logging and cron scheduling (e.g., `America/New_York`)                                                                                                                    |
-| `PUID`                      | `1000`                        | User ID for file permissions (run `id -u` to find yours)                                                                                                                               |
-| `PGID`                      | `1000`                        | Group ID for file permissions (run `id -g` to find yours)                                                                                                                              |
+### Core Application Settings
 
-The schedule can also be changed from **Settings** in the web UI. The saved value takes effect immediately, persists in the application database, and overrides `CRON_SCHEDULE` until changed again.
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `SCAN_PATHS` | `/movies, /tv` | Comma-separated paths to scan for video & subtitle files |
+| `EXCLUDE_PATHS` | *(none)* | Comma-separated directory paths to exclude |
+| `INCLUDE_ENGINES` | `ffsubsync,autosubsync,alass` | Enabled sync engines (e.g. `ffsubsync,autosubsync,alass,ai-translate`) |
+| `SYNC_LANGUAGES` | *(none)* | Comma-separated language tags to sync (e.g. `en,zh-TW`). If empty, syncs all SRTs |
+| `CRON_SCHEDULE` | `0 0 * * *` | Cron schedule for automated scanning (`disabled` to turn off) |
+| `MAX_CONCURRENT_SYNC_TASKS` | `1` | Number of subtitle files to process in parallel |
+| `OVERWRITE_ORIGINAL` | `false` | Overwrite original `.srt` file instead of creating `.alass.srt` sidecars |
+| `SYNC_ENGINE_TIMEOUT_MS` | `1800000` | Timeout per sync operation in milliseconds (30 min default) |
+| `WEB_PORT` | `3000` | Port for the Web UI |
+| `WEB_HOST` | `0.0.0.0` | Host interface binding (`0.0.0.0` for Docker) |
+| `PUID` / `PGID` | `1000` / `1000` | User/Group ID for file permissions |
 
-### AI Translation (optional)
+---
 
-Add `ai-translate` to `INCLUDE_ENGINES` to translate each eligible external SRT into a separate sidecar file. When timing engines are also enabled, Subsyncarr translates first and then synchronizes the AI sidecar against the matching video. This is intentionally portable: unlike the reference Bazarr script, it does not read Bazarr's internal database, extract embedded subtitle streams, or request Bazarr rescans.
+### 🤖 AI Translation Settings
 
-| Variable                         | Default                        | Description                                                                                          |
-| -------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `AI_BASE_URL`                    | _(required)_                   | OpenAI-compatible API base URL, for example `https://example.com/v1`                                 |
-| `AI_API_KEY`                     | _(required)_                   | API key; never exposed by the web UI                                                                 |
-| `AI_MODEL`                       | _(required)_                   | Model name sent to the API                                                                           |
-| `AI_TARGET_LANGUAGE`             | `Traditional Chinese (Taiwan)` | Translation instruction                                                                              |
-| `AI_OUTPUT_LANGUAGE`             | `zh-TW`                        | Sidecar suffix; output is `<subtitle>.AI.<tag>.srt`                                                  |
-| `AI_REQUIRED_SUBTITLE_LANGUAGES` | _(none)_                       | Comma-separated language profiles. Skip AI when any matching subtitle exists; e.g. `zh-TW,zh-CN,chi` |
-| `AI_REQUIRED_SUBTITLE_LANGUAGE`  | _(legacy alias)_               | Single-language compatibility alias for `AI_REQUIRED_SUBTITLE_LANGUAGES`                             |
-| `AI_BATCH_CUES`                  | `200`                          | Maximum subtitle cues per API request                                                                |
-| `AI_BATCH_CHARS`                 | `30000`                        | Maximum source characters per API request                                                            |
-| `AI_MAX_OUTPUT_TOKENS`           | `16384`                        | Maximum tokens requested from the API                                                                |
-| `AI_TIMEOUT_MS`                  | `300000`                       | Per-request timeout in milliseconds                                                                  |
+Add `ai-translate` to `INCLUDE_ENGINES` to enable AI translation:
 
 ```yaml
 environment:
   - INCLUDE_ENGINES=ffsubsync,autosubsync,alass,ai-translate
   - AI_BASE_URL=https://api.openai.com/v1
-  - AI_API_KEY=your-secret-key
-  - AI_MODEL=gpt-4.1-mini
+  - AI_API_KEY=your-secret-api-key
+  - AI_MODEL=gpt-4o-mini
+  - AI_TARGET_LANGUAGE=Traditional Chinese (Taiwan)
+  - AI_OUTPUT_LANGUAGE=zh-TW
   - AI_REQUIRED_SUBTITLE_LANGUAGES=zh-TW,zh-CN,chi
   - TELEGRAM_BOT_TOKEN=your-bot-token
   - TELEGRAM_CHAT_ID=your-chat-id
 ```
 
-When Telegram is configured, Subsyncarr sends a notification after an AI sidecar is generated and after each successful subtitle timing synchronization. AI sidecars and their synchronized outputs always remain non-destructive, even when `OVERWRITE_ORIGINAL=true` is enabled for regular subtitle synchronization.
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `AI_BASE_URL` | *(required)* | OpenAI-compatible endpoint URL (e.g. `https://api.openai.com/v1`) |
+| `AI_API_KEY` | *(required)* | API key for authentication (never exposed in UI) |
+| `AI_MODEL` | *(required)* | LLM model name (e.g. `gpt-4o-mini`, `claude-3-5-sonnet`, `deepseek-chat`) |
+| `AI_TARGET_LANGUAGE` | `Traditional Chinese (Taiwan)` | Translation target language prompt |
+| `AI_OUTPUT_LANGUAGE` | `zh-TW` | Sidecar filename suffix (`<subtitle>.AI.zh-TW.srt`) |
+| `AI_REQUIRED_SUBTITLE_LANGUAGES` | *(none)* | Skip translation if any matching language subtitle already exists |
+| `AI_BATCH_CUES` | `350` | Maximum subtitle cues per API batch request |
+| `AI_TIMEOUT_MS` | `300000` | Translation API request timeout (5 minutes) |
 
-### Database & Log Configuration
+---
 
-| Variable                           | Default                   | Description                                 |
-| ---------------------------------- | ------------------------- | ------------------------------------------- |
-| `DB_PATH`                          | `/app/data/subsyncarr.db` | SQLite database location                    |
-| `LOG_BUFFER_SIZE`                  | `1000`                    | Ring buffer size for in-memory logs         |
-| `RETENTION_KEEP_RUNS_DAYS`         | `30`                      | Keep complete runs for N days               |
-| `RETENTION_TRIM_LOGS_DAYS`         | `7`                       | Trim logs after N days (keeps summary only) |
-| `RETENTION_MAX_LOG_SIZE`           | `10000`                   | Max size for trimmed logs in bytes          |
-| `RETENTION_CLEANUP_INTERVAL_HOURS` | `24`                      | How often to run cleanup (in hours)         |
+## 🗂️ Media Directory Structure
 
-### Timeout Configuration
-
-The `SYNC_ENGINE_TIMEOUT_MS` environment variable controls how long each sync engine can run before being terminated. This prevents hung processes from blocking the queue.
-
-Example configuration:
-
-```yaml
-environment:
-  - SYNC_ENGINE_TIMEOUT_MS=3600000 # 60 minutes for large files
-```
-
-### Directory Structure
-
-Your media directory should be organized with video files and their corresponding subtitle files using matching names:
+Subsyncarr Plus automatically handles standard Plex, Jellyfin, and Arr directory layouts:
 
 ```txt
 /movies
-├── Movie Title (2024).mkv
-├── Movie Title (2024).srt          # Will be synchronized
-├── Movie Title (2024).ffsubsync.srt # Generated output
-└── Another Movie.mp4
-    └── Another Movie.srt
+├── The Furious (2026)/
+│   ├── The Furious (2026).mkv
+│   ├── The Furious (2026).zh-TW.srt          # Source subtitle
+│   ├── The Furious (2026).zh-TW.alass.srt    # Synchronized sidecar
+│   └── The Furious (2026).AI.zh-TW.srt       # AI translated sidecar
 
 /tv
-├── Show Name/
-│   ├── Season 01/
-│   │   ├── Show.S01E01.mkv
-│   │   └── Show.S01E01.srt
+├── Fallout (2024)/
+│   └── Season 01/
+│       ├── Fallout.S01E01.mkv
+│       ├── Fallout.S01E01.en.srt
+│       └── Fallout.S01E01.en.ffsubsync.srt
 ```
 
-The app follows standard naming conventions compatible with Plex, Jellyfin, Emby, and Bazarr.
+---
 
-## Web UI
-
-Subsyncarr Plus includes a comprehensive web-based monitoring interface accessible at `http://localhost:3000` after starting the container.
-
-### UI Features
-
-**Real-time Monitoring:**
-
-- Live progress bars showing current processing status
-- File-by-file status updates via WebSocket
-- Engine-level detail (see which sync engine is running)
-- Current and queued files display
-
-**Manual Control:**
-
-- **Start Full Run** - Process all configured directories immediately
-- **Scan Specific Path** - Process a custom directory on demand
-- **Stop Processing** - Cancel all remaining files in current run
-- **Skip File** - Cancel processing for individual files
-
-**File Management:**
-
-- View completed and skipped files
-- Clear processed files from the UI
-- Track file status (pending, processing, completed, skipped, error)
-- See matched video files for each subtitle
-
-**Processing History:**
-
-- Sortable run history table with timestamps
-- Per-run statistics (total, completed, skipped, failed counts)
-- Engine-level results summary with notation:
-  - **F** = ffsubsync result
-  - **Au** = autosubsync result
-  - **Al** = alass result
-- Duration tracking for each run
-- View detailed logs for any past run with copy-to-clipboard functionality
-
-**Configuration Dashboard:**
-
-- Display of monitored paths and excluded paths
-- Schedule status with next run time
-- Human-readable cron schedule translation
-
-### Database Persistence
-
-Processing history is stored in SQLite and persists across container restarts. Ensure the data volume is mounted:
-
-```yaml
-volumes:
-  - ./data:/app/data # Database and logs stored here
-```
-
-## Advanced Features
-
-### Auto-Skip on Repeated Failures
-
-The app intelligently tracks failures for each file/engine combination. After 3 consecutive failures, that engine will be automatically skipped for that specific file, preventing wasted processing time. You can reset skip status via the API endpoint `/api/skip-status/reset`.
-
-### Memory Management
-
-Optimized for low-memory environments with:
-
-- Configurable memory limits (768MB default, 128MB minimum)
-- SQLite optimizations for low RAM usage
-- File-based logging with buffering to reduce memory pressure
-- Automatic database vacuuming and cleanup
-- Ring buffer for in-memory logs
-
-### Log Retention & Cleanup
-
-Automatic cleanup keeps your database size manageable:
-
-- Complete runs retained for 30 days (configurable)
-- Logs trimmed after 7 days, keeping only summaries
-- Runs beyond retention period are automatically deleted
-- Cleanup runs every 24 hours (configurable)
-
-## Troubleshooting
+## 🔧 Troubleshooting & Support
 
 ### View Container Logs
-
 ```bash
 docker logs -f subsyncarr
 ```
 
-### Check Web UI Logs
-
-Detailed processing logs are available in the Web UI under "Processing History" - click on any run to view full logs.
-
-### Permission Issues
-
-If you encounter permission errors, ensure `PUID` and `PGID` match your host user:
-
+### File Permission Issues
+Ensure `PUID` and `PGID` match the owner of your media files on host:
 ```bash
-id -u  # Get your user ID
-id -g  # Get your group ID
+id -u  # Returns your PUID
+id -g  # Returns your PGID
 ```
 
-Then update your docker-compose.yaml with these values.
+### Reset Auto-Skipped Files
+Files that fail 3 consecutive times are marked as auto-skipped. You can reset auto-skip statuses directly inside the CyberDeck 3.0 Web UI under **Settings** or via HTTP POST to `/api/skip-status/reset`.
 
-> **Note:** Do not use the `user:` directive in docker-compose or `--user` in docker run. The container must start as root so the entrypoint can configure file permissions using `PUID`/`PGID`, then drops to the unprivileged user automatically via `gosu`.
+---
 
-### Memory Issues
+## 📜 License
 
-If the container is being killed due to OOM (Out Of Memory):
-
-1. Reduce `MAX_CONCURRENT_SYNC_TASKS` to 1
-2. Increase memory limit in `NODE_OPTIONS` (e.g., `--max-old-space-size=1024`)
-3. Increase memory limit in docker-compose.yaml
-4. Reduce `SYNC_ENGINE_TIMEOUT_MS` for faster timeouts
-5. Exclude large files or problematic directories with `EXCLUDE_PATHS`
-
-### Files Not Being Processed
-
-Check that:
-
-1. Your subtitle files are named to match video files (e.g., `movie.mkv` and `movie.srt`)
-2. `SCAN_PATHS` matches your mounted volumes
-3. Files haven't already been synced (check for `.ffsubsync.srt` files)
-4. Files aren't being auto-skipped due to repeated failures (check skip status in Web UI)
-
-## Docker Hub
-
-Pull the latest image:
-
-```bash
-docker pull mrorbitman/subsyncarr:latest
-```
-
-**Docker Hub Repository:** [mrorbitman/subsyncarr](https://hub.docker.com/r/mrorbitman/subsyncarr)
-
-## Contributing
-
-Issues and pull requests are welcome! Please report bugs or suggest features via GitHub Issues.
-
-## License
-
-See LICENSE file for details.
+Distributed under the MIT License. See `LICENSE` for details.
