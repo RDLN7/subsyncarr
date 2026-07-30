@@ -1,15 +1,19 @@
 import { readdir } from 'fs/promises';
 import { basename, dirname, extname, join } from 'path';
 import { existsSync } from 'fs';
-import { ScanConfig } from './config';
+import { getEnabledEngines, parseCommaSeparated, ScanConfig } from './config';
+import { getAiSynchronizedOutputPath, getAiTranslationOutputPath } from './generateAiTranslatedSubtitles';
+import { getAppSetting } from './settings';
 
 function isAlreadySynced(srtPath: string, engines: string[]): boolean {
   const directory = dirname(srtPath);
   const srtBaseName = basename(srtPath, '.srt');
 
   return engines.every((engine) => {
-    const outputPath = join(directory, `${srtBaseName}.${engine}.srt`);
-    return existsSync(outputPath);
+    if (engine === 'ai-translate') return existsSync(getAiTranslationOutputPath(srtPath));
+    const sourceOutput = join(directory, `${srtBaseName}.${engine}.srt`);
+    const aiOutput = engines.includes('ai-translate') ? getAiSynchronizedOutputPath(srtPath, engine) : undefined;
+    return existsSync(sourceOutput) && (!aiOutput || existsSync(aiOutput));
   });
 }
 
@@ -30,8 +34,8 @@ export interface ScanResult {
 }
 
 export async function findAllSrtFiles(config: ScanConfig): Promise<ScanResult> {
-  const engines = process.env.INCLUDE_ENGINES?.split(',') || ['ffsubsync', 'autosubsync', 'alass'];
-  const languages = process.env.SYNC_LANGUAGES?.split(',').map((l) => l.trim()).filter(Boolean) || [];
+  const engines = getEnabledEngines();
+  const languages = parseCommaSeparated(getAppSetting('SYNC_LANGUAGES'));
   const files: string[] = [];
   let skippedCount = 0;
 
@@ -40,14 +44,15 @@ export async function findAllSrtFiles(config: ScanConfig): Promise<ScanResult> {
   }
 
   async function scan(directory: string): Promise<void> {
-    // Check if this directory should be excluded
-    if (config.excludePaths.some((excludePath) => directory.startsWith(excludePath))) {
+    if (
+      config.excludePaths.some((excludePath) => directory === excludePath || directory.startsWith(`${excludePath}/`))
+    ) {
       return;
     }
 
     const entries = await readdir(directory, { withFileTypes: true });
 
-    const tasks = entries.map(async (entry) => {
+    for (const entry of entries) {
       const fullPath = join(directory, entry.name);
 
       if (entry.isDirectory()) {
@@ -58,6 +63,8 @@ export async function findAllSrtFiles(config: ScanConfig): Promise<ScanResult> {
         !entry.name.includes('.ffsubsync.') &&
         !entry.name.includes('.alass.') &&
         !entry.name.includes('.autosubsync.') &&
+        !entry.name.includes('.AI.') &&
+        !entry.name.includes('.extracted_ref.') &&
         matchesLanguageFilter(entry.name, languages)
       ) {
         if (isAlreadySynced(fullPath, engines)) {
@@ -66,14 +73,16 @@ export async function findAllSrtFiles(config: ScanConfig): Promise<ScanResult> {
           files.push(fullPath);
         }
       }
-    });
-
-    await Promise.all(tasks);
+    }
   }
 
   // Scan all included paths
   for (const includePath of config.includePaths) {
-    await scan(includePath);
+    if (existsSync(includePath)) {
+      await scan(includePath);
+    } else {
+      console.warn(`[${new Date().toISOString()}] Scan path does not exist on disk, skipping: ${includePath}`);
+    }
   }
 
   if (skippedCount > 0) {

@@ -1,16 +1,19 @@
-#!/bin/bash
+#!/bin/sh
+set -eu
 
-# Adjust node user UID/GID at runtime if PUID/PGID are set
-PUID=${PUID:-1000}
-PGID=${PGID:-1000}
+PUID="${PUID:-1000}"
+PGID="${PGID:-1000}"
 
-if [ "$(id -u node)" != "$PUID" ] || [ "$(id -g node)" != "$PGID" ]; then
-  groupmod -o -g "$PGID" node
-  usermod -o -u "$PUID" node
-  chown -R node:node /home/node
+case "$PUID:$PGID" in
+  *[!0-9:]*|:) echo "PUID and PGID must be numeric values" >&2; exit 64 ;;
+esac
+
+if [ "$(id -u)" = "0" ]; then
+  if [ "$(id -g node)" != "$PGID" ]; then groupmod -o -g "$PGID" node; fi
+  if [ "$(id -u node)" != "$PUID" ]; then usermod -o -u "$PUID" node; fi
+  mkdir -p /app/data
+  chown -R node:node /app/data
+  exec gosu node "$@"
 fi
 
-# Always fix ownership on /app/data — it's a mounted volume with unpredictable ownership
-chown -R node:node /app/data
-
-exec gosu node "$@"
+exec "$@"

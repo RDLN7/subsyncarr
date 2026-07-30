@@ -1,10 +1,12 @@
 import EventEmitter from 'events';
-import { ScanConfig, getScanConfig } from './config';
+import { ScanConfig, getEnabledEngines, getMaxConcurrentTasks, getScanConfig } from './config';
 import { findAllSrtFiles } from './findAllSrtFiles';
 import { findMatchingVideoFile } from './findMatchingVideoFile';
 import { generateFfsubsyncSubtitles } from './generateFfsubsyncSubtitles';
 import { generateAutosubsyncSubtitles } from './generateAutosubsyncSubtitles';
 import { generateAlassSubtitles } from './generateAlassSubtitles';
+import { generateAiTranslatedSubtitles, getAiTranslationOutputPath } from './generateAiTranslatedSubtitles';
+import { notifyTelegram } from './telegramNotifier';
 import { StateManager } from './stateManager';
 
 export class ProcessingEngine extends EventEmitter {
@@ -15,11 +17,25 @@ export class ProcessingEngine extends EventEmitter {
   private maxLogBufferSize: number;
   public stateManager?: StateManager;
 
+  private getAiSyncEngines(): string[] {
+    return this.enabledEngines.filter((engine) => ['ffsubsync', 'autosubsync', 'alass'].includes(engine));
+  }
+
+  private recordSkippedAiSynchronization(srtPath: string, reason: string): void {
+    for (const engine of this.getAiSyncEngines()) {
+      this.emit('file:engine_completed', {
+        srtPath,
+        engine: `${engine} (AI)`,
+        result: { success: true, duration: 0, message: reason, skipped: true },
+      });
+    }
+  }
+
   constructor() {
     super();
-    this.maxConcurrent = parseInt(process.env.MAX_CONCURRENT_SYNC_TASKS || '1', 10);
-    this.enabledEngines = process.env.INCLUDE_ENGINES?.split(',') || ['ffsubsync', 'autosubsync', 'alass'];
-    this.maxLogBufferSize = parseInt(process.env.LOG_BUFFER_SIZE || '1000', 10);
+    this.maxConcurrent = getMaxConcurrentTasks();
+    this.enabledEngines = getEnabledEngines();
+    this.maxLogBufferSize = Math.max(100, Number.parseInt(process.env.LOG_BUFFER_SIZE || '1000', 10) || 1000);
   }
 
   private log(message: string): void {
@@ -42,13 +58,20 @@ export class ProcessingEngine extends EventEmitter {
     this.logBuffer = [];
   }
 
+  reloadConfiguration(): void {
+    this.maxConcurrent = getMaxConcurrentTasks();
+    this.enabledEngines = getEnabledEngines();
+  }
+
   async processRun(config?: ScanConfig): Promise<void> {
     const scanConfig = config || getScanConfig();
     this.log(`[${new Date().toISOString()}] Scanning for subtitle files...`);
     this.log(`[${new Date().toISOString()}] Scan paths: ${JSON.stringify(scanConfig.includePaths)}`);
 
     const { files: srtFiles, skippedCount } = await findAllSrtFiles(scanConfig);
-    this.log(`[${new Date().toISOString()}] Found ${srtFiles.length} subtitle files to process (${skippedCount} already synced)`);
+    this.log(
+      `[${new Date().toISOString()}] Found ${srtFiles.length} subtitle files to process (${skippedCount} already synced)`,
+    );
 
     this.emit('run:files_found', srtFiles, skippedCount);
 
@@ -65,6 +88,84 @@ export class ProcessingEngine extends EventEmitter {
     }
 
     this.log(`[${new Date().toISOString()}] All files processed`);
+  }
+
+  private async synchronizeAiSubtitle(
+    sourceSrtPath: string,
+    videoPath: string | null,
+    fileName: string,
+  ): Promise<void> {
+    const translatedPath = getAiTranslationOutputPath(sourceSrtPath);
+    const syncEngines = this.getAiSyncEngines();
+
+    if (!videoPath) {
+      this.recordSkippedAiSynchronization(sourceSrtPath, 'No matching video found for AI subtitle timing sync');
+      return;
+    }
+
+    for (const engine of syncEngines) {
+      if (this.cancelledFiles.has(sourceSrtPath)) return;
+
+      const recordEngine = `${engine} (AI)`;
+      if (this.stateManager?.shouldSkipEngine(sourceSrtPath, recordEngine)) {
+        this.emit('file:engine_completed', {
+          srtPath: sourceSrtPath,
+          engine: recordEngine,
+          result: { success: false, duration: 0, message: 'Skipped due to 3+ consecutive failures', skipped: true },
+        });
+        continue;
+      }
+      this.log(`[${new Date().toISOString()}] Starting ${recordEngine} for: ${fileName}`);
+      this.emit('file:engine_started', { srtPath: sourceSrtPath, engine: recordEngine });
+      const startTime = Date.now();
+
+      try {
+        let result;
+        switch (engine) {
+          case 'ffsubsync':
+            result = await generateFfsubsyncSubtitles(translatedPath, videoPath, false);
+            break;
+          case 'autosubsync':
+            result = await generateAutosubsyncSubtitles(translatedPath, videoPath, false);
+            break;
+          case 'alass':
+            result = await generateAlassSubtitles(translatedPath, videoPath, false);
+            break;
+          default:
+            continue;
+        }
+
+        const duration = Date.now() - startTime;
+        const status = result.success ? '✓' : '✗';
+        const shiftText = result.offset ? `, shift: ${result.offset}` : '';
+        this.log(
+          `[${new Date().toISOString()}] ${status} ${recordEngine} completed (${(duration / 1000).toFixed(1)}s${shiftText}): ${fileName}`,
+        );
+        this.emit('file:engine_completed', {
+          srtPath: sourceSrtPath,
+          engine: recordEngine,
+          result: { ...result, duration },
+        });
+        if (result.success && !result.skipped) {
+          const shiftNote = result.offset ? `\nAdjustment: ${result.offset}` : '';
+          await notifyTelegram(
+            `✅ Subtitle time synced\n${fileName}\nEngine: ${recordEngine}${shiftNote}\nOutput: ${translatedPath}`,
+          );
+        }
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const message = error instanceof Error ? error.message : String(error);
+        this.log(
+          `[${new Date().toISOString()}] ✗ ${recordEngine} failed (${(duration / 1000).toFixed(1)}s): ${fileName}`,
+        );
+        this.log(`[${new Date().toISOString()}]   Error: ${message}`);
+        this.emit('file:engine_completed', {
+          srtPath: sourceSrtPath,
+          engine: recordEngine,
+          result: { success: false, message, duration },
+        });
+      }
+    }
   }
 
   private async processFile(srtPath: string): Promise<void> {
@@ -84,21 +185,41 @@ export class ProcessingEngine extends EventEmitter {
 
     if (!videoPath) {
       this.log(`[${new Date().toISOString()}] No matching video found for: ${fileName}`);
-      this.emit('file:no_video', { srtPath });
-      return;
+    } else {
+      this.log(`[${new Date().toISOString()}] Found video: ${videoPath.split('/').pop()}`);
     }
-
-    this.log(`[${new Date().toISOString()}] Found video: ${videoPath.split('/').pop()}`);
 
     // Process with each enabled engine
     let anyEngineSucceeded = false;
     let allEnginesSkipped = true;
-    for (const engine of this.enabledEngines) {
+    // AI must run first so its generated subtitle can immediately be synchronized below.
+    const engines = [...this.enabledEngines].sort((left, right) => {
+      if (left === 'ai-translate') return -1;
+      if (right === 'ai-translate') return 1;
+      return 0;
+    });
+    for (const engine of engines) {
       // Check cancellation before each engine
       if (this.cancelledFiles.has(srtPath)) {
         this.log(`[${new Date().toISOString()}] Skipped (cancelled): ${fileName}`);
         this.emit('file:skipped', { srtPath, reason: 'cancelled' });
         return;
+      }
+
+      // Timing engines require a video file; AI translation can operate on standalone subtitles.
+      if (!videoPath && engine !== 'ai-translate') {
+        this.log(`[${new Date().toISOString()}] ⊘ ${engine} skipped (no matching video file): ${fileName}`);
+        this.emit('file:engine_completed', {
+          srtPath,
+          engine,
+          result: {
+            success: false,
+            duration: 0,
+            message: 'No matching video found for timing synchronization',
+            skipped: true,
+          },
+        });
+        continue;
       }
 
       // Check if engine should be skipped due to consecutive failures
@@ -114,7 +235,27 @@ export class ProcessingEngine extends EventEmitter {
             skipped: true,
           },
         });
+        if (engine === 'ai-translate')
+          this.recordSkippedAiSynchronization(srtPath, 'Skipped because AI translation is unavailable');
         continue; // Skip to next engine (allEnginesSkipped remains true)
+      }
+
+      // Skip unchanged subtitle for this engine if it was already processed with identical content
+      if (this.stateManager && (await this.stateManager.shouldSkipUnchangedSubtitle(srtPath, engine))) {
+        this.log(`[${new Date().toISOString()}] ⊘ ${engine} skipped (subtitle unchanged): ${fileName}`);
+        this.emit('file:engine_completed', {
+          srtPath,
+          engine,
+          result: {
+            success: true,
+            duration: 0,
+            message: 'Skipped because subtitle content is unchanged since last successful run',
+            skipped: true,
+          },
+        });
+        if (engine === 'ai-translate')
+          this.recordSkippedAiSynchronization(srtPath, 'Skipped because the source subtitle is unchanged');
+        continue;
       }
 
       this.log(`[${new Date().toISOString()}] Starting ${engine} for: ${fileName}`);
@@ -126,13 +267,16 @@ export class ProcessingEngine extends EventEmitter {
       try {
         switch (engine) {
           case 'ffsubsync':
-            result = await generateFfsubsyncSubtitles(srtPath, videoPath);
+            result = await generateFfsubsyncSubtitles(srtPath, videoPath!);
             break;
           case 'autosubsync':
-            result = await generateAutosubsyncSubtitles(srtPath, videoPath);
+            result = await generateAutosubsyncSubtitles(srtPath, videoPath!);
             break;
           case 'alass':
-            result = await generateAlassSubtitles(srtPath, videoPath);
+            result = await generateAlassSubtitles(srtPath, videoPath!);
+            break;
+          case 'ai-translate':
+            result = await generateAiTranslatedSubtitles(srtPath);
             break;
           default:
             continue;
@@ -148,6 +292,7 @@ export class ProcessingEngine extends EventEmitter {
             engine,
             result: { ...result, duration },
           });
+          if (engine === 'ai-translate') this.recordSkippedAiSynchronization(srtPath, result.message);
           continue; // allEnginesSkipped stays true
         }
 
@@ -155,8 +300,9 @@ export class ProcessingEngine extends EventEmitter {
         allEnginesSkipped = false;
 
         const status = result.success ? '✓' : '✗';
+        const shiftText = result.offset ? `, shift: ${result.offset}` : '';
         this.log(
-          `[${new Date().toISOString()}] ${status} ${engine} completed (${(duration / 1000).toFixed(1)}s): ${fileName}`,
+          `[${new Date().toISOString()}] ${status} ${engine} completed (${(duration / 1000).toFixed(1)}s${shiftText}): ${fileName}`,
         );
         if (!result.success) {
           this.log(`[${new Date().toISOString()}]   Error: ${result.message}`);
@@ -168,6 +314,18 @@ export class ProcessingEngine extends EventEmitter {
 
         if (result.success) {
           anyEngineSucceeded = true;
+          if (this.stateManager) {
+            const postProcessHash = await this.stateManager.getSubtitleContentHash(srtPath);
+            this.stateManager.recordProcessedSubtitleHash(srtPath, engine, postProcessHash);
+          }
+          if (engine === 'ai-translate') {
+            await notifyTelegram(
+              `✅ AI subtitle generated\n${fileName}\nOutput: ${getAiTranslationOutputPath(srtPath)}`,
+            );
+          } else {
+            const shiftNote = result.offset ? `\nAdjustment: ${result.offset}` : '';
+            await notifyTelegram(`✅ Subtitle time synced\n${fileName}\nEngine: ${engine}${shiftNote}`);
+          }
         }
 
         this.emit('file:engine_completed', {
@@ -175,6 +333,10 @@ export class ProcessingEngine extends EventEmitter {
           engine,
           result: { ...result, duration },
         });
+
+        if (engine === 'ai-translate' && result.success && !result.skipped) {
+          await this.synchronizeAiSubtitle(srtPath, videoPath, fileName || srtPath);
+        }
       } catch (error) {
         // Engine attempted to run (not skipped), so not all are skipped
         allEnginesSkipped = false;

@@ -1,13 +1,18 @@
 import { basename, dirname, join } from 'path';
-import { execPromise, ProcessingResult } from './helpers';
-import { existsSync } from 'fs';
+import { calculateSrtOffsetFromContents, execPromise, getTimeoutMs, ProcessingResult } from './helpers';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { rename } from 'fs/promises';
+import { getAppSetting } from './settings';
 
-export async function generateAutosubsyncSubtitles(srtPath: string, videoPath: string): Promise<ProcessingResult> {
+export async function generateAutosubsyncSubtitles(
+  srtPath: string,
+  videoPath: string,
+  overwriteOriginal: boolean = getAppSetting('OVERWRITE_ORIGINAL') === 'true',
+): Promise<ProcessingResult> {
   const directory = dirname(srtPath);
   const srtBaseName = basename(srtPath, '.srt');
   const outputPath = join(directory, `${srtBaseName}.autosubsync.srt`);
-  const overwrite = process.env.OVERWRITE_ORIGINAL === 'true';
+  const overwrite = overwriteOriginal;
 
   if (!overwrite) {
     const exists = existsSync(outputPath);
@@ -21,16 +26,59 @@ export async function generateAutosubsyncSubtitles(srtPath: string, videoPath: s
   }
 
   try {
+    const origContent = existsSync(srtPath) ? readFileSync(srtPath, 'utf-8') : null;
     const command = `autosubsync "${videoPath}" "${srtPath}" "${outputPath}"`;
     console.log(`${new Date().toLocaleString()} Processing: ${command}`);
-    const { stdout, stderr } = await execPromise(command);
+    const timeoutMs = getTimeoutMs();
+    let stdout = '';
+    let stderr = '';
+
+    try {
+      const res = await execPromise(command, timeoutMs);
+      stdout = res.stdout;
+      stderr = res.stderr;
+    } catch (primaryError) {
+      if (existsSync(videoPath)) {
+        const tempWavPath = join(directory, `${srtBaseName}.ref_audio.wav`);
+        console.log(`${new Date().toLocaleString()} Autosubsync direct video processing failed. Extracting WAV audio reference to ${tempWavPath}...`);
+        try {
+          const extractAudioCmd = `ffmpeg -y -i "${videoPath}" -vn -ac 1 -ar 16000 -acodec pcm_s16le "${tempWavPath}"`;
+          await execPromise(extractAudioCmd, 120000);
+
+          if (existsSync(tempWavPath)) {
+            const wavCmd = `autosubsync "${tempWavPath}" "${srtPath}" "${outputPath}"`;
+            console.log(`${new Date().toLocaleString()} Retrying autosubsync with extracted WAV audio: ${wavCmd}`);
+            const res = await execPromise(wavCmd, timeoutMs);
+            stdout = res.stdout;
+            stderr = res.stderr;
+          } else {
+            throw primaryError;
+          }
+        } finally {
+          if (existsSync(tempWavPath)) {
+            try {
+              unlinkSync(tempWavPath);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      } else {
+        throw primaryError;
+      }
+    }
+
+    const syncedContent = existsSync(outputPath) ? readFileSync(outputPath, 'utf-8') : null;
+    const offsetInfo = calculateSrtOffsetFromContents(origContent, syncedContent);
 
     if (overwrite) {
       if (existsSync(outputPath)) {
         await rename(outputPath, srtPath);
         return {
           success: true,
-          message: `Successfully processed and overwritten: ${srtPath}`,
+          message: `Successfully processed and overwritten: ${srtPath}${offsetInfo ? ` (shift: ${offsetInfo.offset})` : ''}`,
+          offset: offsetInfo?.offset,
+          offsetSeconds: offsetInfo?.offsetSeconds,
           stdout: stdout || undefined,
           stderr: stderr || undefined,
         };
@@ -46,7 +94,9 @@ export async function generateAutosubsyncSubtitles(srtPath: string, videoPath: s
 
     return {
       success: true,
-      message: `Successfully processed: ${outputPath}`,
+      message: `Successfully processed: ${outputPath}${offsetInfo ? ` (shift: ${offsetInfo.offset})` : ''}`,
+      offset: offsetInfo?.offset,
+      offsetSeconds: offsetInfo?.offsetSeconds,
       stdout: stdout || undefined,
       stderr: stderr || undefined,
     };

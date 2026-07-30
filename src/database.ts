@@ -40,6 +40,16 @@ export interface EngineFailureTracking {
   updated_at: number;
 }
 
+export interface ProcessedSubtitleState {
+  id: number;
+  file_path: string;
+  engine: string;
+  content_hash: string;
+  last_processed_time: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export class SubsyncarrPlusDatabase {
   private db: Database.Database;
 
@@ -104,6 +114,16 @@ export class SubsyncarrPlusDatabase {
         ON file_results(run_id);
       CREATE INDEX IF NOT EXISTS idx_file_results_status
         ON file_results(status);
+      CREATE INDEX IF NOT EXISTS idx_file_results_run_status
+        ON file_results(run_id, status);
+      CREATE INDEX IF NOT EXISTS idx_file_results_filepath
+        ON file_results(file_path);
+
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
     `);
 
     // Migration: Add logs column if it doesn't exist
@@ -146,6 +166,28 @@ export class SubsyncarrPlusDatabase {
         CREATE INDEX idx_failure_tracking_skipped ON engine_failure_tracking(is_skipped);
       `);
     }
+
+    // Migration: Create processed_subtitle_state table
+    const processedStateTables = this.db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='processed_subtitle_state'")
+      .all();
+    if (processedStateTables.length === 0) {
+      this.db.exec(`
+        CREATE TABLE processed_subtitle_state (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path TEXT NOT NULL,
+          engine TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          last_processed_time INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE(file_path, engine)
+        );
+
+        CREATE INDEX idx_processed_subtitle_state_file_engine
+          ON processed_subtitle_state(file_path, engine);
+      `);
+    }
   }
 
   // Run methods
@@ -180,6 +222,27 @@ export class SubsyncarrPlusDatabase {
     `,
       )
       .all(limit) as Run[];
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key) as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  }
+
+  getSettings(): Record<string, string> {
+    const rows = this.db.prepare('SELECT key, value FROM app_settings').all() as Array<{ key: string; value: string }>;
+    return Object.fromEntries(rows.map(({ key, value }) => [key, value]));
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      )
+      .run(key, value, Date.now());
   }
 
   /**
@@ -415,6 +478,32 @@ export class SubsyncarrPlusDatabase {
     });
 
     return { totalSkipped: totalSkipped.count, skippedByEngine };
+  }
+
+  getProcessedSubtitleState(filePath: string, engine: string): ProcessedSubtitleState | null {
+    return this.db
+      .prepare(
+        `SELECT * FROM processed_subtitle_state
+         WHERE file_path = ? AND engine = ?`,
+      )
+      .get(filePath, engine) as ProcessedSubtitleState | null;
+  }
+
+  upsertProcessedSubtitleState(filePath: string, engine: string, contentHash: string): void {
+    const now = Date.now();
+    this.db
+      .prepare(
+        `
+        INSERT INTO processed_subtitle_state
+          (file_path, engine, content_hash, last_processed_time, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(file_path, engine) DO UPDATE SET
+          content_hash = excluded.content_hash,
+          last_processed_time = excluded.last_processed_time,
+          updated_at = excluded.updated_at
+      `,
+      )
+      .run(filePath, engine, contentHash, now, now, now);
   }
 
   close() {

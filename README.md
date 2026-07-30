@@ -18,6 +18,7 @@ An automated subtitle synchronization tool that runs as a Docker container. It c
 - **Configurable Timeouts** - Set per-engine timeout limits to prevent hung processes
 - **Log Management** - Configurable retention policies with automatic trimming and deletion
 - **Non Destructive** - Creates new files for each engine so no original files are altered. Allows easy switching between engines while watching content.
+- **Optional AI Translation** - Translate external SRT subtitles through any OpenAI-compatible API and keep the generated Traditional Chinese sidecar beside the source.
 
 ## Quick Start
 
@@ -59,7 +60,6 @@ services:
 ```
 
 2. **Update the configuration:**
-
    - Replace `/path/to/movies`, `/path/to/tv`, etc. with your actual media paths
    - Update `TZ` to your timezone (e.g., `America/New_York`, `Europe/London`)
    - Update `PUID` and `PGID` to match your user (run `id` command to find these)
@@ -97,33 +97,66 @@ docker run -d \
 
 ### Core Configuration
 
-| Variable                    | Default                       | Description                                                                      |
-| --------------------------- | ----------------------------- | -------------------------------------------------------------------------------- |
-| `SCAN_PATHS`                | `/scan_dir`                   | Comma-separated directories to scan for SRT files (must be mounted as volumes)   |
-| `EXCLUDE_PATHS`             | _(none)_                      | Comma-separated directories to exclude from scanning                             |
+| Variable                    | Default                       | Description                                                                                                                                                                            |
+| --------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SCAN_PATHS`                | `/scan_dir`                   | Comma-separated directories to scan for SRT files (must be mounted as volumes)                                                                                                         |
+| `EXCLUDE_PATHS`             | _(none)_                      | Comma-separated directories to exclude from scanning                                                                                                                                   |
 | `SYNC_LANGUAGES`            | _(none)_                      | Comma-separated language codes to sync (e.g., `en,de`). Only syncs subtitles with matching language tags in the filename (e.g., `movie.en.srt`). If not set, all subtitles are synced. |
-| `CRON_SCHEDULE`             | `0 0 * * *`                   | Cron expression for sync schedule (daily at midnight), or `disabled` to turn off |
-| `MAX_CONCURRENT_SYNC_TASKS` | `1`                           | Number of subtitle files to process in parallel (higher = faster but more CPU)   |
-| `INCLUDE_ENGINES`           | `ffsubsync,autosubsync,alass` | Which sync engines to use (comma-separated)                                      |
-| `SYNC_TIMEOUT`              | _(none)_                      | Timeout in seconds per sync operation (overrides SYNC_ENGINE_TIMEOUT_MS)         |
-| `SYNC_ENGINE_TIMEOUT_MS`    | `1800000`                     | Timeout for each sync engine in milliseconds (30 min default)                    |
-| `NODE_OPTIONS`             | `--max-old-space-size=512`    | Node.js options, used here to set memory limit (in MB)                           |
-| `WEB_PORT`                 | `3000`                        | Port for the web UI                                                              |
-| `WEB_HOST`                 | `127.0.0.1`                   | Host to bind the web UI to (`0.0.0.0` to expose externally)                     |
-| `TZ`                        | _(system)_                    | Timezone for logging and cron scheduling (e.g., `America/New_York`)              |
-| `PUID`                      | `1000`                        | User ID for file permissions (run `id -u` to find yours)                         |
-| `PGID`                      | `1000`                        | Group ID for file permissions (run `id -g` to find yours)                        |
+| `CRON_SCHEDULE`             | `0 0 * * *`                   | Cron expression for sync schedule (daily at midnight), or `disabled` to turn off                                                                                                       |
+| `MAX_CONCURRENT_SYNC_TASKS` | `1`                           | Number of subtitle files to process in parallel (higher = faster but more CPU)                                                                                                         |
+| `INCLUDE_ENGINES`           | `ffsubsync,autosubsync,alass` | Which sync engines to use (comma-separated)                                                                                                                                            |
+| `SYNC_TIMEOUT`              | _(none)_                      | Timeout in seconds per sync operation (overrides SYNC_ENGINE_TIMEOUT_MS)                                                                                                               |
+| `SYNC_ENGINE_TIMEOUT_MS`    | `1800000`                     | Timeout for each sync engine in milliseconds (30 min default)                                                                                                                          |
+| `NODE_OPTIONS`              | `--max-old-space-size=512`    | Node.js options, used here to set memory limit (in MB)                                                                                                                                 |
+| `WEB_PORT`                  | `3000`                        | Port for the web UI                                                                                                                                                                    |
+| `WEB_HOST`                  | `127.0.0.1`                   | Host to bind the web UI to (`0.0.0.0` to expose externally)                                                                                                                            |
+| `TZ`                        | _(system)_                    | Timezone for logging and cron scheduling (e.g., `America/New_York`)                                                                                                                    |
+| `PUID`                      | `1000`                        | User ID for file permissions (run `id -u` to find yours)                                                                                                                               |
+| `PGID`                      | `1000`                        | Group ID for file permissions (run `id -g` to find yours)                                                                                                                              |
+
+The schedule can also be changed from **Settings** in the web UI. The saved value takes effect immediately, persists in the application database, and overrides `CRON_SCHEDULE` until changed again.
+
+### AI Translation (optional)
+
+Add `ai-translate` to `INCLUDE_ENGINES` to translate each eligible external SRT into a separate sidecar file. When timing engines are also enabled, Subsyncarr translates first and then synchronizes the AI sidecar against the matching video. This is intentionally portable: unlike the reference Bazarr script, it does not read Bazarr's internal database, extract embedded subtitle streams, or request Bazarr rescans.
+
+| Variable                         | Default                        | Description                                                                                          |
+| -------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `AI_BASE_URL`                    | _(required)_                   | OpenAI-compatible API base URL, for example `https://example.com/v1`                                 |
+| `AI_API_KEY`                     | _(required)_                   | API key; never exposed by the web UI                                                                 |
+| `AI_MODEL`                       | _(required)_                   | Model name sent to the API                                                                           |
+| `AI_TARGET_LANGUAGE`             | `Traditional Chinese (Taiwan)` | Translation instruction                                                                              |
+| `AI_OUTPUT_LANGUAGE`             | `zh-TW`                        | Sidecar suffix; output is `<subtitle>.AI.<tag>.srt`                                                  |
+| `AI_REQUIRED_SUBTITLE_LANGUAGES` | _(none)_                       | Comma-separated language profiles. Skip AI when any matching subtitle exists; e.g. `zh-TW,zh-CN,chi` |
+| `AI_REQUIRED_SUBTITLE_LANGUAGE`  | _(legacy alias)_               | Single-language compatibility alias for `AI_REQUIRED_SUBTITLE_LANGUAGES`                             |
+| `AI_BATCH_CUES`                  | `200`                          | Maximum subtitle cues per API request                                                                |
+| `AI_BATCH_CHARS`                 | `30000`                        | Maximum source characters per API request                                                            |
+| `AI_MAX_OUTPUT_TOKENS`           | `16384`                        | Maximum tokens requested from the API                                                                |
+| `AI_TIMEOUT_MS`                  | `300000`                       | Per-request timeout in milliseconds                                                                  |
+
+```yaml
+environment:
+  - INCLUDE_ENGINES=ffsubsync,autosubsync,alass,ai-translate
+  - AI_BASE_URL=https://api.openai.com/v1
+  - AI_API_KEY=your-secret-key
+  - AI_MODEL=gpt-4.1-mini
+  - AI_REQUIRED_SUBTITLE_LANGUAGES=zh-TW,zh-CN,chi
+  - TELEGRAM_BOT_TOKEN=your-bot-token
+  - TELEGRAM_CHAT_ID=your-chat-id
+```
+
+When Telegram is configured, Subsyncarr sends a notification after an AI sidecar is generated and after each successful subtitle timing synchronization. AI sidecars and their synchronized outputs always remain non-destructive, even when `OVERWRITE_ORIGINAL=true` is enabled for regular subtitle synchronization.
 
 ### Database & Log Configuration
 
-| Variable                           | Default                        | Description                                 |
-| ---------------------------------- | ------------------------------ | ------------------------------------------- |
+| Variable                           | Default                   | Description                                 |
+| ---------------------------------- | ------------------------- | ------------------------------------------- |
 | `DB_PATH`                          | `/app/data/subsyncarr.db` | SQLite database location                    |
-| `LOG_BUFFER_SIZE`                  | `1000`                         | Ring buffer size for in-memory logs         |
-| `RETENTION_KEEP_RUNS_DAYS`         | `30`                           | Keep complete runs for N days               |
-| `RETENTION_TRIM_LOGS_DAYS`         | `7`                            | Trim logs after N days (keeps summary only) |
-| `RETENTION_MAX_LOG_SIZE`           | `10000`                        | Max size for trimmed logs in bytes          |
-| `RETENTION_CLEANUP_INTERVAL_HOURS` | `24`                           | How often to run cleanup (in hours)         |
+| `LOG_BUFFER_SIZE`                  | `1000`                    | Ring buffer size for in-memory logs         |
+| `RETENTION_KEEP_RUNS_DAYS`         | `30`                      | Keep complete runs for N days               |
+| `RETENTION_TRIM_LOGS_DAYS`         | `7`                       | Trim logs after N days (keeps summary only) |
+| `RETENTION_MAX_LOG_SIZE`           | `10000`                   | Max size for trimmed logs in bytes          |
+| `RETENTION_CLEANUP_INTERVAL_HOURS` | `24`                      | How often to run cleanup (in hours)         |
 
 ### Timeout Configuration
 
@@ -135,7 +168,6 @@ Example configuration:
 environment:
   - SYNC_ENGINE_TIMEOUT_MS=3600000 # 60 minutes for large files
 ```
-
 
 ### Directory Structure
 
@@ -269,7 +301,7 @@ If the container is being killed due to OOM (Out Of Memory):
 2. Increase memory limit in `NODE_OPTIONS` (e.g., `--max-old-space-size=1024`)
 3. Increase memory limit in docker-compose.yaml
 4. Reduce `SYNC_ENGINE_TIMEOUT_MS` for faster timeouts
-4. Exclude large files or problematic directories with `EXCLUDE_PATHS`
+5. Exclude large files or problematic directories with `EXCLUDE_PATHS`
 
 ### Files Not Being Processed
 

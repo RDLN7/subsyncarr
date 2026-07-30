@@ -3,6 +3,8 @@ import { SubsyncarrPlusDatabase, Run, FileResult } from './database';
 import { randomUUID } from 'crypto';
 import { LogFileManager } from './logFileManager';
 import * as path from 'path';
+import { createHash } from 'crypto';
+import { readFile } from 'fs/promises';
 
 export class StateManager extends EventEmitter {
   private db: SubsyncarrPlusDatabase;
@@ -36,7 +38,11 @@ export class StateManager extends EventEmitter {
   }
 
   // Run management
-  startRun(totalFiles: number, enabledEngines: string[] = ['ffsubsync', 'autosubsync', 'alass'], alreadySyncedCount: number = 0): string {
+  startRun(
+    totalFiles: number,
+    enabledEngines: string[] = ['ffsubsync', 'autosubsync', 'alass'],
+    alreadySyncedCount: number = 0,
+  ): string {
     const runId = randomUUID();
     this.db.createRun(runId, totalFiles);
 
@@ -107,7 +113,13 @@ export class StateManager extends EventEmitter {
     this.db.createFileResult(runId, filePath, videoPath);
   }
 
-  updateFileStatus(runId: string, filePath: string, status: FileResult['status'], currentEngine?: string | null, videoPath?: string | null): void {
+  updateFileStatus(
+    runId: string,
+    filePath: string,
+    status: FileResult['status'],
+    currentEngine?: string | null,
+    videoPath?: string | null,
+  ): void {
     const updates: Partial<FileResult> = { status };
     if (currentEngine !== undefined) {
       updates.current_engine = currentEngine;
@@ -188,6 +200,18 @@ export class StateManager extends EventEmitter {
     return this.db.getRunHistory(limit);
   }
 
+  getSetting(key: string): string | null {
+    return this.db.getSetting(key);
+  }
+
+  getSettings(): Record<string, string> {
+    return this.db.getSettings();
+  }
+
+  setSetting(key: string, value: string): void {
+    this.db.setSetting(key, value);
+  }
+
   getFileResults(runId: string): FileResult[] {
     return this.db.getFileResults(runId);
   }
@@ -226,6 +250,21 @@ export class StateManager extends EventEmitter {
 
   getFailureStats() {
     return this.db.getFailureTrackingStats();
+  }
+
+  async getSubtitleContentHash(filePath: string): Promise<string> {
+    const content = await readFile(filePath);
+    return createHash('sha1').update(content).digest('hex');
+  }
+
+  async shouldSkipUnchangedSubtitle(filePath: string, engine: string): Promise<boolean> {
+    const currentHash = await this.getSubtitleContentHash(filePath);
+    const state = this.db.getProcessedSubtitleState(filePath, engine);
+    return state ? state.content_hash === currentHash : false;
+  }
+
+  recordProcessedSubtitleHash(filePath: string, engine: string, contentHash: string): void {
+    this.db.upsertProcessedSubtitleState(filePath, engine, contentHash);
   }
 
   close() {

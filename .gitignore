@@ -27,3 +27,9 @@ data/logs/
 # Claude Code local overrides
 CLAUDE.local.md
 .claude/CLAUDE.local.md
+
+# Local deployment & scratch files
+deploy-to-synology.sh
+subsyncarr-src.tgz
+.serena/
+

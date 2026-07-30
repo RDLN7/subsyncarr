@@ -1,6 +1,6 @@
 import { ProcessingEngine } from './processingEngine';
 import { StateManager } from './stateManager';
-import { ScanConfig } from './config';
+import { getEnabledEngines, ScanConfig } from './config';
 import { Run } from './database';
 import { once } from 'events';
 
@@ -14,7 +14,7 @@ export class ProcessingCoordinator {
     private engine: ProcessingEngine,
     private stateManager: StateManager,
   ) {
-    this.enabledEngines = process.env.INCLUDE_ENGINES?.split(',') || ['ffsubsync', 'autosubsync', 'alass'];
+    this.enabledEngines = getEnabledEngines();
 
     // Inject stateManager into engine so it can check skip status
     this.engine.stateManager = this.stateManager;
@@ -30,7 +30,15 @@ export class ProcessingCoordinator {
     });
 
     this.engine.on('run:files_found', (files: string[], skippedCount: number) => {
-      this.currentRunId = this.stateManager.startRun(files.length, this.enabledEngines, skippedCount);
+      const recordedEngines = this.enabledEngines.includes('ai-translate')
+        ? [
+            ...this.enabledEngines,
+            ...this.enabledEngines
+              .filter((engine) => ['ffsubsync', 'autosubsync', 'alass'].includes(engine))
+              .map((engine) => `${engine} (AI)`),
+          ]
+        : this.enabledEngines;
+      this.currentRunId = this.stateManager.startRun(files.length, recordedEngines, skippedCount);
 
       // Add all files to database as pending (video matching happens during processing)
       for (const filePath of files) {
@@ -110,6 +118,8 @@ export class ProcessingCoordinator {
       throw new Error('A run is already in progress');
     }
 
+    this.enabledEngines = getEnabledEngines();
+    this.engine.reloadConfiguration?.();
     console.log(`[${new Date().toISOString()}] Starting new processing run...`);
     this.engine.reset();
     this.currentRunId = null;
@@ -131,9 +141,11 @@ export class ProcessingCoordinator {
       const run = this.stateManager.getCurrentRun();
       if (run) {
         console.log(
-          `[${new Date().toISOString()}] Run completed - Total: ${run.total_files}, Completed: ${run.completed}, Skipped: ${run.skipped}, Failed: ${run.failed}`,
+          `[${new Date().toISOString()}] Run completed - Total: ${run.total_files ?? 0}, Completed: ${run.completed ?? 0}, Skipped: ${run.skipped ?? 0}, Failed: ${run.failed ?? 0}`,
         );
         this.stateManager.completeRun(run.id);
+      } else {
+        console.log(`[${new Date().toISOString()}] Run completed - No active run to finalize.`);
       }
       this.currentRunId = null;
     });
@@ -198,5 +210,9 @@ export class ProcessingCoordinator {
 
   isRunning(): boolean {
     return this.processingPromise !== null;
+  }
+
+  getLogs(): string[] {
+    return this.engine.getLogs();
   }
 }

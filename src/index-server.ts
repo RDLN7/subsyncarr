@@ -2,8 +2,8 @@ import { ProcessingEngine } from './processingEngine';
 import { StateManager } from './stateManager';
 import { ProcessingCoordinator } from './coordinator';
 import { SubsyncarrPlusServer } from './server';
-import { schedule } from 'node-cron';
 import { getRetentionConfig } from './config';
+import { initializeApplicationSettings } from './settings';
 
 async function main() {
   const dbPath = process.env.DB_PATH || '/app/data/subsyncarr-plus.db';
@@ -13,6 +13,7 @@ async function main() {
   console.log(`[${new Date().toISOString()}] Initializing Subsyncarr Plus Server...`);
 
   const stateManager = new StateManager(dbPath);
+  initializeApplicationSettings(stateManager);
   const engine = new ProcessingEngine();
   const coordinator = new ProcessingCoordinator(engine, stateManager);
   const server = new SubsyncarrPlusServer(coordinator, stateManager);
@@ -21,28 +22,11 @@ async function main() {
   server.start(port, host);
 
   // Setup cron scheduler for automatic runs
-  const cronSchedule = process.env.CRON_SCHEDULE || '0 0 * * *';
-
-  if (cronSchedule !== 'disabled') {
-    schedule(cronSchedule, async () => {
-      console.log(`[${new Date().toISOString()}] Starting scheduled run (${cronSchedule})`);
-      try {
-        await coordinator.startRun();
-      } catch (error) {
-        console.error(`[${new Date().toISOString()}] Scheduled run failed:`, error);
-      }
-    });
-
-    console.log(`[${new Date().toISOString()}] Scheduled runs: ${cronSchedule}`);
-  } else {
-    console.log(`[${new Date().toISOString()}] Automatic scheduling disabled`);
-  }
-
   // Setup periodic database cleanup
   const retentionConfig = getRetentionConfig();
   const cleanupIntervalMs = retentionConfig.cleanupIntervalHours * 60 * 60 * 1000;
 
-  setInterval(() => {
+  const cleanupTimer = setInterval(() => {
     console.log(`[${new Date().toISOString()}] Running database cleanup...`);
 
     const db = stateManager.getDatabase();
@@ -73,7 +57,7 @@ async function main() {
   }, cleanupIntervalMs);
 
   // Run cleanup on startup after 5 seconds
-  setTimeout(() => {
+  const initialCleanupTimer = setTimeout(() => {
     console.log(`[${new Date().toISOString()}] Running initial database cleanup...`);
     const db = stateManager.getDatabase();
     const logFileManager = stateManager.getLogFileManager();
@@ -84,7 +68,7 @@ async function main() {
   }, 5000);
 
   // Log memory usage periodically
-  setInterval(
+  const memoryTimer = setInterval(
     () => {
       const usage = process.memoryUsage();
       console.log(
@@ -95,12 +79,20 @@ async function main() {
   ); // Every 5 minutes
 
   // Graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log(`[${new Date().toISOString()}] SIGTERM received, shutting down gracefully...`);
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[${new Date().toISOString()}] ${signal} received, shutting down gracefully...`);
+    clearInterval(cleanupTimer);
+    clearTimeout(initialCleanupTimer);
+    clearInterval(memoryTimer);
     server.close();
     stateManager.close();
     process.exit(0);
-  });
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((error) => {

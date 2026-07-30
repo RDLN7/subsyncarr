@@ -3,10 +3,11 @@ import { findMatchingVideoFile } from './findMatchingVideoFile';
 import { generateAutosubsyncSubtitles } from './generateAutosubsyncSubtitles';
 import { generateFfsubsyncSubtitles } from './generateFfsubsyncSubtitles';
 import { generateAlassSubtitles } from './generateAlassSubtitles';
+import { getEnabledEngines } from './config';
 
 export const processSrtFile = async (srtFile: string) => {
   const videoFile = findMatchingVideoFile(srtFile);
-  const includeEngines = process.env.INCLUDE_ENGINES?.split(',') || ['ffsubsync', 'autosubsync', 'alass'];
+  const includeEngines = getEnabledEngines();
 
   if (videoFile) {
     if (includeEngines.includes('ffsubsync')) {

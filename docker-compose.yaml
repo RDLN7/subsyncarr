@@ -2,42 +2,30 @@ name: subsyncarr
 
 services:
   subsyncarr:
-    image: mrorbitman/subsyncarr:latest
+    build:
+      context: .
+    image: subsyncarr:local
     container_name: subsyncarr
+    env_file: .env
     ports:
-      - '3000:3000' # Web UI
+      - '${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:3000'
     volumes:
-      # Any path configured with SCAN_PATHS env var must be mounted
-      # If no scan paths are specified, it defaults to scan `/scan_dir` like example below.
-      # - /path/to/your/media:/scan_dir
-      - /path/to/movies:/movies
-      - /path/to/tv:/tv
-      - /path/to/anime:/anime
-      - ./data:/app/data # Persist database across restarts
+      - ${DATA_PATH:-./data}:/app/data
+      - ${MOVIES_PATH:-/media/movies}:/movies
+      - ${TV_PATH:-/media/tv}:/tv
+      - ${MEDIA_PATH:-/media}:/media
+      # Mount each directory listed in SCAN_PATHS at the same container path.
+      # - /volume1/media/movies:/movies
+      # - /volume1/media/tv:/tv
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 768M      # Hard limit - increased for file-based logging and large runs
-        reservations:
-          memory: 128M      # Minimum guaranteed memory
-    environment:
-      - PUID=1000 # Set to your user's UID (run `id -u` to find it)
-      - PGID=1000 # Set to your user's GID (run `id -g` to find it)
-      - TZ=Etc/UTC # Replace with your own timezone
-      - CRON_SCHEDULE=0 0 * * * # Runs every day at midnight by default
-      - SCAN_PATHS=/movies,/tv # Remember to mount these as volumes. Must begin with /. Default valus is `/scan_dir`
-      - EXCLUDE_PATHS=/movies/temp,/tv/downloads # Exclude certain sub-directories from the scan
-      - MAX_CONCURRENT_SYNC_TASKS=1 # Defaults to 1 if not set. Higher number will consume more CPU but sync your library faster
-      - INCLUDE_ENGINES=ffsubsync,autosubsync # If not set, all engines are used by default
-      - OVERWRITE_ORIGINAL=true # Set to true to overwrite original subtitles
-      # Memory configuration (optional):
-      # - NODE_OPTIONS=--max-old-space-size=1024 # Increase if you experience OOM errors (default: 512)
-      # Timeout configuration (optional - uncomment and adjust if needed):
-      # - SYNC_ENGINE_TIMEOUT_MS=1800000  # 30 minutes (default)
-      # - SYNC_ENGINE_TIMEOUT_MS=3600000  # 60 minutes for very large files
-      # - SYNC_ENGINE_TIMEOUT_MS=600000   # 10 minutes for smaller files
-      # Web UI configuration (optional):
-      # - WEB_PORT=3000                   # Port for web UI (default: 3000)
-      # - WEB_HOST=127.0.0.1              # Host to bind to (default: 127.0.0.1, use 0.0.0.0 for all interfaces)
-      # - DB_PATH=/app/data/subsyncarr.db # SQLite database location (default: /app/data/subsyncarr.db)
+    mem_limit: 768m
+    mem_reservation: 128m
+    cpus: 2.0
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: '3'

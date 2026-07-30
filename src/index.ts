@@ -1,5 +1,5 @@
 import { findAllSrtFiles } from './findAllSrtFiles';
-import { getScanConfig } from './config';
+import { getMaxConcurrentTasks, getScanConfig } from './config';
 import { processSrtFile } from './processSrtFile';
 
 async function main(): Promise<void> {
@@ -9,9 +9,7 @@ async function main(): Promise<void> {
     const { files: srtFiles, skippedCount } = await findAllSrtFiles(scanConfig);
     console.log(`${new Date().toLocaleString()} Found ${srtFiles.length} SRT files (${skippedCount} already synced)`);
 
-    const maxConcurrentSyncTasks = process.env.MAX_CONCURRENT_SYNC_TASKS
-      ? parseInt(process.env.MAX_CONCURRENT_SYNC_TASKS)
-      : 1;
+    const maxConcurrentSyncTasks = getMaxConcurrentTasks();
 
     for (let i = 0; i < srtFiles.length; i += maxConcurrentSyncTasks) {
       const chunk = srtFiles.slice(i, i + maxConcurrentSyncTasks);
