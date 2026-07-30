@@ -4,7 +4,7 @@ services:
   subsyncarr:
     build:
       context: .
-    image: subsyncarr:local
+    image: ghcr.io/rdln7/subsyncarr:latest
     container_name: subsyncarr
     env_file: .env
     ports:

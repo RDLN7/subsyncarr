@@ -52,7 +52,7 @@ name: subsyncarr
 
 services:
   subsyncarr:
-    image: mrorbitman/subsyncarr:latest
+    image: ghcr.io/rdln7/subsyncarr:latest
     container_name: subsyncarr
     ports:
       - '3000:3000' # Web UI
@@ -102,7 +102,7 @@ docker run -d \
   -e CRON_SCHEDULE="0 0 * * *" \
   -e SCAN_PATHS=/movies,/tv \
   -e INCLUDE_ENGINES=ffsubsync,autosubsync,alass \
-  mrorbitman/subsyncarr:latest
+  ghcr.io/rdln7/subsyncarr:latest
 ```
 
 ---
