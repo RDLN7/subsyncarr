@@ -1,5 +1,5 @@
 import { basename, dirname, join } from 'path';
-import { calculateSrtOffsetFromContents, execPromise, getTimeoutMs, ProcessingResult } from './helpers';
+import { calculateSrtOffsetFromContents, execPromise, extractAudioToWav, getTimeoutMs, ProcessingResult } from './helpers';
 import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { rename } from 'fs/promises';
 import { getAppSetting } from './settings';
@@ -42,8 +42,7 @@ export async function generateAutosubsyncSubtitles(
         const tempWavPath = join(directory, `${srtBaseName}.ref_audio.wav`);
         console.log(`${new Date().toLocaleString()} Autosubsync direct video processing failed. Extracting WAV audio reference to ${tempWavPath}...`);
         try {
-          const extractAudioCmd = `ffmpeg -y -err_detect ignore_err -i "${videoPath}" -map 0:a? -vn -ac 1 -ar 16000 -acodec pcm_s16le "${tempWavPath}"`;
-          await execPromise(extractAudioCmd, 600000);
+          await extractAudioToWav(videoPath, tempWavPath, 600000);
 
           if (existsSync(tempWavPath)) {
             const wavCmd = `autosubsync "${tempWavPath}" "${srtPath}" "${outputPath}"`;

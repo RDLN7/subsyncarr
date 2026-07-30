@@ -2,6 +2,7 @@ import { basename, dirname, join } from 'path';
 import {
   calculateSrtOffsetFromContents,
   execPromise,
+  extractAudioToWav,
   findOrExtractReferenceSubtitle,
   getTimeoutMs,
   ProcessingResult,
@@ -62,8 +63,7 @@ export async function generateAlassSubtitles(
         const tempWavPath = join(directory, `${srtBaseName}.ref_audio.wav`);
         console.log(`${new Date().toLocaleString()} Alass direct video processing failed. Extracting WAV audio reference to ${tempWavPath}...`);
         try {
-          const extractAudioCmd = `ffmpeg -y -err_detect ignore_err -i "${videoPath}" -map 0:a? -vn -ac 1 -ar 16000 -acodec pcm_s16le "${tempWavPath}"`;
-          await execPromise(extractAudioCmd, 600000);
+          await extractAudioToWav(videoPath, tempWavPath, 600000);
 
           if (existsSync(tempWavPath)) {
             const wavAlassCmd = `alass "${tempWavPath}" "${srtPath}" "${outputPath}"`;

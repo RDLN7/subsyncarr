@@ -220,3 +220,35 @@ export async function findOrExtractReferenceSubtitle(
 
   return { refPath: videoPath || srtPath, isSubRef: false, isExtracted: false };
 }
+
+export async function extractAudioToWav(
+  videoPath: string,
+  outputWavPath: string,
+  timeoutMs: number = 600000,
+): Promise<void> {
+  const audioMapTargets = ['0:a:0', '0:a:1', '0:a:2', '0:a:3', '0:a:4', '0:a:5'];
+  let lastError: any = null;
+
+  for (const target of audioMapTargets) {
+    try {
+      const extractAudioCmd = `ffmpeg -y -err_detect ignore_err -i "${videoPath}" -map ${target} -vn -ac 1 -ar 16000 -acodec pcm_s16le "${outputWavPath}"`;
+      await execPromise(extractAudioCmd, timeoutMs);
+      if (existsSync(outputWavPath) && statSync(outputWavPath).size > 1000) {
+        return;
+      }
+    } catch (err) {
+      lastError = err;
+      if (existsSync(outputWavPath)) {
+        try {
+          unlinkSync(outputWavPath);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+
+  const fallbackCmd = `ffmpeg -y -err_detect ignore_err -i "${videoPath}" -vn -ac 1 -ar 16000 -acodec pcm_s16le "${outputWavPath}"`;
+  await execPromise(fallbackCmd, timeoutMs);
+}
+
