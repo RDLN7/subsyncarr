@@ -632,9 +632,13 @@ body {
   font-weight: 700;
   color: var(--text-primary);
   white-space: nowrap;
-  overflow: hidden;
+  overflow: visible;
   text-overflow: ellipsis;
   font-family: var(--font-sans);
+  display: flex;
+  align-items: center;
+  padding-left: 4px;
+  margin-left: -4px;
 }
 
 .metric-sub {
@@ -660,6 +664,8 @@ body {
   flex-shrink: 0;
   vertical-align: middle;
   box-sizing: border-box;
+  margin-left: 4px;
+  margin-right: 6px;
   transform: translateZ(0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
